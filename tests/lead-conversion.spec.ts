@@ -49,8 +49,14 @@ test.describe('Part B - Lead to Opportunity Conversion', () => {
     expect(willCreateContact).toBe(true);
 
     const conversionResponse = await convertLeadPage.convertAndCaptureResponse();
-    // Bonus (Part B API validation): asserting on the Database.LeadConvertResult shape -
-    // confirm field names against the actual payload captured from your own org (see NOTES.md).
+    // Bonus (Part B API validation): assert on the real Lightning/Aura `convertLeadServer`
+    // response shape captured from this org (see NOTES.md) - a Database.LeadConvertResult-like
+    // object with accountId/contactId/opportunityId/hasError/isPersonAccount fields.
+    const leadConvertResult = (conversionResponse as Record<string, unknown>).leadConvertResult as
+      | Record<string, unknown>
+      | undefined;
+    expect(leadConvertResult?.hasError).toBe(false);
+    expect(String(leadConvertResult?.opportunityId ?? '')).toMatch(/^006[a-zA-Z0-9]{15}$/);
     expect(conversionResponse).toHaveProperty('success', true);
     expect(String((conversionResponse as Record<string, unknown>).opportunityId ?? '')).toMatch(
       /^006[a-zA-Z0-9]{15}$/,

@@ -84,16 +84,19 @@ export class ConvertLeadPage extends BasePage {
    * Clicking Convert replaces the modal's content in place with a "Your lead has been converted"
    * confirmation screen - it does NOT auto-navigate to the new Opportunity. Record IDs are read
    * directly off that screen's record links (keyed by their stable 3-char Id prefix: 001=Account,
-   * 003=Contact, 006=Opportunity) since the underlying conversion network call's URL/shape is not
-   * reliably observable from the client. See NOTES.md (Part B) for the raw network capture, when
-   * one could be observed, kept here only as supplementary evidence.
+   * 003=Contact, 006=Opportunity) as the primary signal, since it's independent of the Aura
+   * payload's shape. The underlying conversion call is a Lightning/Aura action - it POSTs to
+   * `/aura?...ui-lead-runtime-components-controllers.LeadConvertDesktop.convertLeadServer=1` and
+   * replies with `{"actions":[{"returnValue":{accountId,contactId,opportunityId,isPersonAccount,
+   * hasError}}]}` (captured from this org, see NOTES.md Part B) - `leadConvertResult` below is
+   * that `returnValue` object, parsed out for the API-bonus assertions.
    */
   async convertAndCaptureResponse(): Promise<Record<string, unknown>> {
     const convertButton = this.getDialog().getByRole('button', { name: 'Convert', exact: true });
     await expect(convertButton).toBeEnabled({ timeout: 20_000 });
 
     const responsePromise = this.page
-      .waitForResponse((res: Response) => /convert/i.test(res.url()), { timeout: 10_000 })
+      .waitForResponse((res: Response) => /convertLeadServer/i.test(res.url()), { timeout: 10_000 })
       .catch(() => null);
 
     await convertButton.click();
@@ -124,6 +127,8 @@ export class ConvertLeadPage extends BasePage {
         }
       }
     }
+    const actions = rawNetworkPayload?.actions as { returnValue?: Record<string, unknown> }[] | undefined;
+    const leadConvertResult = actions?.[0]?.returnValue ?? null;
 
     const ids = await this.waitForConvertedIds();
     return {
@@ -132,6 +137,7 @@ export class ConvertLeadPage extends BasePage {
       contactId: ids.contactId,
       opportunityId: ids.opportunityId,
       ...(rawNetworkPayload ? { rawNetworkPayload } : {}),
+      ...(leadConvertResult ? { leadConvertResult } : {}),
     };
   }
 
