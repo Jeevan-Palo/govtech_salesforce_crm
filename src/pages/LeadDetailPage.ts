@@ -20,6 +20,9 @@ export class LeadDetailPage extends BasePage {
    * selectors against this component's dynamically-regenerated markup.
    */
   async editStatus(newStatus: string): Promise<void> {
+    // On WebKit the post-save toast can sit over the Path component long enough to intercept
+    // clicks on its options before it naturally clears.
+    await this.waitForToastToClear();
     await this.page.getByRole('option', { name: newStatus, exact: true }).click();
     await this.page.getByRole('button', { name: 'Mark as Current Status' }).click();
     await this.getToastMessage();

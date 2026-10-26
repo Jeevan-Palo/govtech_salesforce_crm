@@ -14,8 +14,12 @@ export class AppLauncherPage extends BasePage {
 
     await this.page.getByRole('button', { name: 'App Launcher' }).click();
     await this.page.getByPlaceholder('Search apps and items...').fill(appName);
+    // The search-results list re-renders asynchronously after typing (slower on WebKit) - give it
+    // a moment to settle before looking for the option, rather than relying solely on
+    // actionability auto-waiting on a possibly-stale option list.
+    await this.page.waitForTimeout(500);
     // Exact match - a substring match can hit the wrong app (e.g. "Sales" also matches "Salesforce Chatter").
-    await this.page.getByRole('option', { name: appName, exact: true }).first().click();
+    await this.page.getByRole('option', { name: appName, exact: true }).first().click({ timeout: 20_000 });
     await this.waitForLightningReady();
   }
 }

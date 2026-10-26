@@ -34,6 +34,11 @@ test.describe('Part B - Lead Creation & Management', () => {
 
     await leadDetailPage.editStatus('Working - Contacted');
     await leadDetailPage.openDetailsTab();
-    expect(await leadDetailPage.getFieldValueByLabel('Lead Status')).toContain('Working - Contacted');
+    // The Details tab's "Lead Status" field can briefly still reflect the pre-save value
+    // (observed on WebKit, where the save round-trip to re-render this field lags behind the
+    // Path's own "current status" UI update) - poll instead of reading once.
+    await expect
+      .poll(() => leadDetailPage.getFieldValueByLabel('Lead Status'), { timeout: 20_000 })
+      .toContain('Working - Contacted');
   });
 });
