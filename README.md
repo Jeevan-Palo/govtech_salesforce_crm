@@ -3,6 +3,9 @@
 Playwright + TypeScript automation framework for the Salesforce CRM Lead →
 Opportunity assessment (see `GovTech  - QA - Assesment Testv1.pdf`).
 
+> Looking for how each assessment requirement maps to the code, and the key
+> design decisions behind it? See [SOLUTION.md](SOLUTION.md).
+
 ## Project structure
 
 ```
@@ -161,11 +164,18 @@ secrets before enabling the workflow:
 
 ## Known limitations
 
-- Locators in `src/pages/*` are written against Salesforce Lightning's
-  documented/standard markup (accessible roles, labels) but have **not** been
-  validated against a live org yet — run `npm run codegen` against your org
-  to confirm/adjust selectors (especially `ConvertLeadPage` and the Status
-  inline-edit flow) before relying on a green run.
+- The Convert Lead dialog's "Account Search" typeahead is backed by an
+  asynchronous SOSL search index that can lag well behind a just-created
+  record (observed still un-indexed 90+ seconds after creation). The
+  existing-Account-match test (`lead-conversion.spec.ts`) works around this
+  by reusing a fixed Company name across runs via a local state file
+  (`.test-state/duplicate-match.json`, gitignored) instead of creating and
+  immediately searching for the same Account in one run.
+- `fullyParallel: true` plus `workers: undefined` locally means Playwright
+  auto-detects a worker count that can exceed CI's capped `workers: 2`,
+  putting more simultaneous load on the live org than CI ever will. If the
+  full suite flakes locally (dialog/timeout flakes, not assertion mismatches),
+  re-run with `--workers=2` to match CI before treating it as a real bug.
 - The duplicate-detection negative test soft-skips itself
   (`test.skip(...)`) if the org has no duplicate rule configured for Lead
   email, since that's an org configuration precondition, not something the

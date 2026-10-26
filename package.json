@@ -1,7 +1,7 @@
 {
   "name": "govtech_salesforce_crm",
   "version": "1.0.0",
-  "description": "",
+  "description": "Playwright + TypeScript QA automation framework for the GovTech Salesforce CRM Lead-to-Opportunity assessment.",
   "main": "index.js",
   "scripts": {
     "test": "playwright test",
