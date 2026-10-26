@@ -69,7 +69,23 @@ export class LeadFormPage extends BasePage {
   }
 
   async save(): Promise<void> {
-    await this.getDialog().getByRole('button', { name: 'Save', exact: true }).click();
+    const dialog = this.getDialog();
+    const saveButton = dialog.getByRole('button', { name: 'Save', exact: true });
+    await saveButton.click();
+
+    // Salesforce's real-time duplicate check can pop a "Similar Records Exist" info dialog on the
+    // first Save click without actually saving the Lead - a second Save click proceeds past it.
+    // Distinguish this from a real validation-error block by waiting specifically for that dialog.
+    const similarRecordsDialog = this.page.getByRole('dialog', { name: 'Similar Records Exist' }).first();
+    const hasSimilarRecords = await similarRecordsDialog
+      .waitFor({ state: 'visible', timeout: 3_000 })
+      .then(() => true, () => false);
+    if (hasSimilarRecords) {
+      await saveButton.click({ timeout: 10_000 }).catch(() => {});
+    }
+    // Real save can take a few seconds; swallowed on timeout since the modal legitimately stays
+    // open for validation-error negative-path tests.
+    await dialog.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
   }
 
   async getFieldErrorMessages(): Promise<string[]> {
