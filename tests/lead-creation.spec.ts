@@ -16,7 +16,9 @@ test.describe('Part B - Lead Creation & Management', () => {
     const leadId = await leadDetailPage.getLeadId18();
     expect(leadId).toMatch(/^[a-zA-Z0-9]{18}$/);
 
-    await expect(page.getByText(`${uniqueLead.firstName} ${uniqueLead.lastName}`)).toBeVisible();
+    // Scoped to the record header's name field - a plain getByText() match also hits the
+    // save-confirmation toast (which repeats the full name) and is a strict-mode violation.
+    await expect(page.locator('lightning-formatted-name', { hasText: uniqueLead.lastName })).toBeVisible();
     expect(await leadDetailPage.getFieldValueByLabel('Company')).toContain(uniqueLead.company);
     expect(await leadDetailPage.getFieldValueByLabel('Email')).toContain(uniqueLead.email);
   });
