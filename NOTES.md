@@ -61,10 +61,16 @@ asserts 2 deep properties observed above:
 
 ## Part C.a — Shadow DOM / dynamic Lightning component evidence
 
-> TODO once you have a live org: add the DevTools screenshot here (or a
-> path/link to it) showing the element whose naive `page.locator()` call
-> didn't work, plus 2-3 sentences on the locator strategy used instead and
-> why it's stable.
+See [`docs/shadow-dom-evidence.png`](docs/shadow-dom-evidence.png) and the
+full write-up in [README.md](README.md#part-ca--shadow-dom--dynamic-lightning-component-evidence).
+
+Short version: the New Lead form's "Lead Status" combobox renders with a
+runtime-generated `id` (`combobox-button-947`) and an LWC scoping class
+(`lwc-4kb6kaqheak`) that both change between sessions/builds, so a naive
+`#combobox-button-947` or `.slds-combobox__input` locator isn't durable. The
+component does expose a stable accessible contract, though -
+`role="combobox"` + `aria-label="Lead Status"` - which is what
+`BasePage.selectCombobox()` targets via `getByRole('combobox', { name: ... })`.
 
 ## Debugging narrative (framework setup)
 

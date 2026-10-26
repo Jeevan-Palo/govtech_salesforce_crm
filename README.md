@@ -75,20 +75,34 @@ log is appended to `test-results/run.log` on every execution.
 
 ## Part C.a — Shadow DOM / dynamic Lightning component evidence
 
-> TODO once you have a live org: replace this section with a DevTools
-> screenshot of the specific element and the exact locator strategy you used,
-> per the assessment's requirement that this come from your own org.
+![Lead Status combobox DevTools inspection](docs/shadow-dom-evidence.png)
 
-The framework's `BasePage.selectCombobox()` / `BasePage.fillLookupAndSelect()`
-helpers target Lightning comboboxes and lookups via their accessible role
-(`getByRole('combobox'/'option', ...)`) rather than CSS/`data-*` selectors,
-because:
-1. Lightning Web Components re-render their internal markup (and regenerate
-   `data-*`/`id` attributes) on every interaction, so structural CSS
-   selectors break between runs.
-2. Playwright pierces open shadow roots automatically for role/text engines,
-   so the accessibility tree stays a stable contract even when the
-   underlying DOM structure changes.
+The screenshot above is the New Lead form's **Lead Status** field, inspected
+live in this org. The rendered markup is:
+
+```html
+<button lwc-4kb6kaqheak class="slds-combobox__input slds-input-faux fix-sds-input_faux slds-combobox__input-value"
+        id="combobox-button-947" type="button"
+        role="combobox" aria-haspopup="listbox" aria-expanded="true"
+        aria-label="Lead Status" aria-required="true"
+        aria-controls="dropdown-element-947" ...>
+```
+
+A naive locator such as `#combobox-button-947` or `.slds-combobox__input`
+doesn't hold up: the `-947` suffix on the `id` and the `lwc-4kb6kaqheak`
+scoping class are both generated per page load/build by the Lightning Web
+Component runtime, so they change between sessions and deployments -
+hard-coding either would break on the very next run.
+
+What *is* stable is the accessible contract the component renders:
+`role="combobox"` + `aria-label="Lead Status"`. That's exactly what
+`BasePage.selectCombobox('Lead Status', ...)` targets via
+`getByRole('combobox', { name: 'Lead Status' })`, and the same reasoning is
+why `BasePage.fillLookupAndSelect()` uses `getByRole('option', ...)` for
+lookup/typeahead results instead of CSS. Playwright also pierces open shadow
+roots automatically for role/text engines, so this accessibility-first
+approach keeps working even where the component's internal DOM is further
+nested inside a shadow boundary.
 
 ## Part C.b — Handling the email verification code on login
 
