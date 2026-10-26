@@ -18,6 +18,15 @@ export class BasePage {
     return (await toast.textContent())?.trim() ?? '';
   }
 
+  /** Toasts (e.g. "Lead ... was created") can linger and intercept clicks on elements beneath them. */
+  async waitForToastToClear(): Promise<void> {
+    await this.page
+      .locator('div.toastMessage, span.toastMessage')
+      .first()
+      .waitFor({ state: 'hidden', timeout: 10_000 })
+      .catch(() => {});
+  }
+
   /** Lightning comboboxes render as a trigger button plus a listbox of role="option" items. */
   async selectCombobox(label: string, optionText: string): Promise<void> {
     await this.page.getByRole('combobox', { name: label }).click();

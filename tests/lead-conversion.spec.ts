@@ -3,7 +3,6 @@ import { createLeadData } from '@src/data/testDataFactory';
 
 test.describe('Part B - Lead to Opportunity Conversion', () => {
   test('creates a new Account and Contact when neither exists, and converts to an Opportunity', async ({
-    page,
     appLauncherPage,
     leadFormPage,
     leadDetailPage,
@@ -30,7 +29,7 @@ test.describe('Part B - Lead to Opportunity Conversion', () => {
       /^006[a-zA-Z0-9]{15}$/,
     );
 
-    await page.waitForURL(/\/lightning\/r\/Opportunity\//);
+    await convertLeadPage.goToConvertedOpportunity();
     await opportunityPage.assertStage('Prospecting');
   });
 

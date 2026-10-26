@@ -15,7 +15,7 @@ export class LeadFormPage extends BasePage {
   async openNewLeadForm(): Promise<void> {
     await this.page.getByRole('link', { name: 'Leads' }).click();
     await this.waitForLightningReady();
-    await this.page.getByRole('button', { name: 'New' }).click();
+    await this.page.getByRole('button', { name: 'New', exact: true }).click();
     await this.getDialog().waitFor({ state: 'visible' });
   }
 

@@ -30,6 +30,7 @@ export class LeadDetailPage extends BasePage {
   }
 
   async clickConvert(): Promise<void> {
+    await this.waitForToastToClear();
     const convertButton = this.page.getByRole('button', { name: 'Convert', exact: true });
     if (await convertButton.isVisible().catch(() => false)) {
       await convertButton.click();
