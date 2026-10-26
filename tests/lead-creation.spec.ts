@@ -21,7 +21,7 @@ test.describe('Part B - Lead Creation & Management', () => {
     expect(await leadDetailPage.getFieldValueByLabel('Email')).toContain(uniqueLead.email);
   });
 
-  test('edits Lead status from Unqualified to Qualified and validates the update', async ({
+  test('edits Lead status from Open - Not Contacted to Working - Contacted and validates the update', async ({
     appLauncherPage,
     leadFormPage,
     leadDetailPage,
@@ -32,7 +32,8 @@ test.describe('Part B - Lead Creation & Management', () => {
     await leadFormPage.fill(uniqueLead);
     await leadFormPage.save();
 
-    await leadDetailPage.editStatus('Qualified');
-    expect(await leadDetailPage.getFieldValueByLabel('Lead Status')).toContain('Qualified');
+    await leadDetailPage.editStatus('Working - Contacted');
+    await leadDetailPage.openDetailsTab();
+    expect(await leadDetailPage.getFieldValueByLabel('Lead Status')).toContain('Working - Contacted');
   });
 });

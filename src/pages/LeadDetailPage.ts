@@ -13,11 +13,20 @@ export class LeadDetailPage extends BasePage {
     return convertTo18(extractRecordIdFromUrl(this.page.url()));
   }
 
+  /**
+   * Lead Status is driven by the Lightning "Path" component: a `listbox "Path Options"` of
+   * `option`s plus a "Mark as Current Status" confirm button - not a simple inline-edit field.
+   * See NOTES.md (Part C.a) for why role-based locators are used here instead of CSS/data-*
+   * selectors against this component's dynamically-regenerated markup.
+   */
   async editStatus(newStatus: string): Promise<void> {
-    await this.page.getByText('Status', { exact: true }).locator('..').getByRole('button').click();
-    await this.selectCombobox('Status', newStatus);
-    await this.page.keyboard.press('Enter');
+    await this.page.getByRole('option', { name: newStatus, exact: true }).click();
+    await this.page.getByRole('button', { name: 'Mark as Current Status' }).click();
     await this.getToastMessage();
+  }
+
+  async openDetailsTab(): Promise<void> {
+    await this.page.getByRole('tab', { name: 'Details' }).click();
   }
 
   async clickConvert(): Promise<void> {
