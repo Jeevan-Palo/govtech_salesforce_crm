@@ -41,13 +41,17 @@ export class BasePage {
     }
   }
 
-  /** Reads a Lightning record-detail field's displayed value by its visible label. */
+  /**
+   * Reads a Lightning record-detail field's label+value text by its visible label.
+   * Returns the whole field container's text (not just the value) since the rendered
+   * value markup varies by field type (plain text, mailto/tel link, formatted number, etc.).
+   */
   async getFieldValueByLabel(label: string): Promise<string> {
     const field = this.page
       .locator('records-record-layout-item, lightning-field, records-highlights-details-item')
       .filter({ has: this.page.getByText(label, { exact: true }) })
       .first();
-    const text = await field.locator('.slds-form-element__static, lightning-formatted-text').first().textContent();
+    const text = await field.textContent();
     return text?.trim() ?? '';
   }
 }

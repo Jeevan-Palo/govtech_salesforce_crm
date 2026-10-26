@@ -11,6 +11,8 @@ const STORAGE_STATE = process.env.STORAGE_STATE_PATH ?? 'playwright/.auth/user.j
  */
 export default defineConfig({
   testDir: './tests',
+  /* Lightning's dynamic rendering can be slower than a typical SPA. */
+  timeout: 45_000,
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

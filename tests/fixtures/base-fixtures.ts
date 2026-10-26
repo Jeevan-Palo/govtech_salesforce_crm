@@ -18,6 +18,11 @@ type Fixtures = {
 };
 
 export const test = base.extend<Fixtures>({
+  // Every test starts logged-in and landed on the org home page, not about:blank.
+  page: async ({ page }, use) => {
+    await page.goto('/');
+    await use(page);
+  },
   loginPage: async ({ page }, use) => use(new LoginPage(page)),
   appLauncherPage: async ({ page }, use) => use(new AppLauncherPage(page)),
   leadFormPage: async ({ page }, use) => use(new LeadFormPage(page)),

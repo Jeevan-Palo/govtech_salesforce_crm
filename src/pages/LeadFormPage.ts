@@ -7,26 +7,33 @@ export class LeadFormPage extends BasePage {
     super(page);
   }
 
+  /** Scoped to avoid matching the unrelated hidden popover dialogs (deal-risk-insights, etc.) also on the page. */
+  private getDialog() {
+    return this.page.getByRole('dialog', { name: 'New Lead' });
+  }
+
   async openNewLeadForm(): Promise<void> {
     await this.page.getByRole('link', { name: 'Leads' }).click();
     await this.waitForLightningReady();
     await this.page.getByRole('button', { name: 'New' }).click();
-    await this.page.getByRole('dialog').waitFor({ state: 'visible' });
+    await this.getDialog().waitFor({ state: 'visible' });
   }
 
   async fill(lead: LeadData): Promise<void> {
-    const dialog = this.page.getByRole('dialog');
-    await dialog.getByLabel('First Name').fill(lead.firstName);
-    await dialog.getByLabel('Last Name', { exact: true }).fill(lead.lastName);
-    await dialog.getByLabel('Company', { exact: true }).fill(lead.company);
-    await dialog.getByLabel('Email', { exact: true }).fill(lead.email);
-    await dialog.getByLabel('Phone', { exact: true }).fill(lead.phone);
-    await dialog.getByLabel('Title', { exact: true }).fill(lead.title);
+    const dialog = this.getDialog();
+    // Required fields render their label with a leading "*" (e.g. "*Last Name"), so match it optionally.
+    const byLabel = (label: string) => dialog.getByLabel(new RegExp(`^\\*?${label}$`));
+    await byLabel('First Name').fill(lead.firstName);
+    await byLabel('Last Name').fill(lead.lastName);
+    await byLabel('Company').fill(lead.company);
+    await byLabel('Email').fill(lead.email);
+    await byLabel('Phone').fill(lead.phone);
+    await byLabel('Title').fill(lead.title);
     await this.selectCombobox('Lead Source', lead.leadSource);
   }
 
   async save(): Promise<void> {
-    await this.page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+    await this.getDialog().getByRole('button', { name: 'Save', exact: true }).click();
   }
 
   async getFieldErrorMessages(): Promise<string[]> {

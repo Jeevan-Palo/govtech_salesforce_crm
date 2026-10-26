@@ -16,8 +16,10 @@ async function isExistingSessionValid(): Promise<boolean> {
     const context = await browser.newContext({ storageState: storageStatePath });
     const page = await context.newPage();
     await page.goto(env.baseURL);
+    // Fail fast here - if the cache is stale we want to leave the bulk of the test
+    // timeout budget for a real login + OTP flow, not burn it waiting on a dead session.
     return await new LoginPage(page)
-      .assertLoggedIn()
+      .assertLoggedIn(8_000)
       .then(() => true)
       .catch(() => false);
   } finally {
@@ -26,6 +28,8 @@ async function isExistingSessionValid(): Promise<boolean> {
 }
 
 setup('authenticate', async ({ page }) => {
+  setup.setTimeout(120_000);
+
   if (await isExistingSessionValid()) {
     logger.info('Cached storageState is still valid; skipping interactive login.');
     return;

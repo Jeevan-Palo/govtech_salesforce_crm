@@ -4,9 +4,6 @@ import { env } from '../config/env';
 import { fetchLatestVerificationCode } from '../utils/otpMailReader';
 import { logger } from '../utils/logger';
 
-// Salesforce's classic login form; these field ids are stable across orgs.
-const VERIFICATION_CODE_INPUT = '#tc, input[name="emc"], #emc';
-
 export class LoginPage extends BasePage {
   constructor(page: Page) {
     super(page);
@@ -18,42 +15,54 @@ export class LoginPage extends BasePage {
 
   async login(username: string, password: string): Promise<void> {
     await this.page.locator('#username').fill(username);
-    await this.page.locator('#password').fill(password);
-    await this.page.locator('#Login').click();
+
+    // Some orgs use a progressive login: username submits first and only then
+    // reveals the password field, instead of showing both fields together.
+    const passwordField = this.page.locator('#password');
+    if (!(await passwordField.isVisible().catch(() => false))) {
+      await this.page.getByRole('button', { name: /log in/i }).click();
+      await passwordField.waitFor({ state: 'visible', timeout: 15_000 });
+    }
+
+    await passwordField.fill(password);
+    await this.page.getByRole('button', { name: /log in/i }).click();
   }
 
   async isVerificationChallengePresented(): Promise<boolean> {
     return this.page
-      .locator(VERIFICATION_CODE_INPUT)
-      .first()
+      .getByRole('textbox', { name: 'Verification Code' })
       .isVisible({ timeout: 5_000 })
       .catch(() => false);
   }
 
-  /** Reads the OTP from the configured mailbox and submits it; throws if automation is disabled. */
+  /** Reads the OTP from the configured mailbox and submits it; pauses for manual entry if IMAP isn't configured. */
   async completeVerificationChallenge(requestedAt: Date): Promise<void> {
-    if (!env.otp.enabled) {
-      throw new Error(
-        'Salesforce requested an email verification code but OTP_AUTOMATION_ENABLED=false. ' +
-          'Enter the code manually once, or configure OTP_IMAP_* to automate it (see README).',
+    const imapConfigured = env.otp.enabled && env.otp.imapHost && env.otp.imapUser && env.otp.imapPassword;
+
+    if (!imapConfigured) {
+      logger.warn(
+        'OTP_IMAP_* is not configured (or OTP_AUTOMATION_ENABLED=false). Pausing in the Playwright ' +
+          'Inspector - read the code from your inbox, enter it, click Verify, then click Resume.',
       );
+      await this.page.pause();
+      return;
     }
 
     const code = await fetchLatestVerificationCode(requestedAt);
-    await this.page.locator(VERIFICATION_CODE_INPUT).first().fill(code);
+    await this.page.getByRole('textbox', { name: 'Verification Code' }).fill(code);
 
-    const rememberDevice = this.page.locator('#rememberUn, input[name="save"]').first();
+    const rememberDevice = this.page.getByRole('checkbox', { name: "Don't ask again" });
     if (await rememberDevice.isVisible().catch(() => false)) {
       await rememberDevice.check().catch(() => {});
     }
 
-    await this.page.locator('#verify, button:has-text("Verify")').first().click();
+    await this.page.getByRole('button', { name: 'Verify', exact: true }).click();
     logger.info('Submitted Salesforce email verification code');
   }
 
-  async assertLoggedIn(): Promise<void> {
+  async assertLoggedIn(timeout = 30_000): Promise<void> {
     await expect(
       this.page.getByRole('button', { name: /App Launcher/i }).or(this.page.getByPlaceholder('Search...')),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible({ timeout });
   }
 }

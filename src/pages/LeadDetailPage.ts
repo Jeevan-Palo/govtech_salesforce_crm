@@ -8,7 +8,8 @@ export class LeadDetailPage extends BasePage {
   }
 
   async getLeadId18(): Promise<string> {
-    await this.page.waitForURL(/\/lightning\/r\/Lead\//);
+    // Salesforce sometimes redirects to the shorthand /lightning/r/<Id>/view form, omitting "Lead/".
+    await this.page.waitForURL(/\/lightning\/r\/(?:Lead\/)?[a-zA-Z0-9]{15,18}\/view/);
     return convertTo18(extractRecordIdFromUrl(this.page.url()));
   }
 

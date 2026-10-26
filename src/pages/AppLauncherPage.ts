@@ -9,7 +9,8 @@ export class AppLauncherPage extends BasePage {
   async openApp(appName: string): Promise<void> {
     await this.page.getByRole('button', { name: 'App Launcher' }).click();
     await this.page.getByPlaceholder('Search apps and items...').fill(appName);
-    await this.page.getByRole('option', { name: appName, exact: false }).first().click();
+    // Exact match - a substring match can hit the wrong app (e.g. "Sales" also matches "Salesforce Chatter").
+    await this.page.getByRole('option', { name: appName, exact: true }).first().click();
     await this.waitForLightningReady();
   }
 }

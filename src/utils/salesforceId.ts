@@ -29,9 +29,12 @@ export function isValidSalesforceId18(id: string): boolean {
   }
 }
 
-/** Extracts the record Id segment from a Lightning record URL, e.g. /lightning/r/Lead/00Q.../view */
+/**
+ * Extracts the record Id segment from a Lightning record URL. Handles both
+ * /lightning/r/<ObjectApiName>/<Id>/view and the shorthand /lightning/r/<Id>/view.
+ */
 export function extractRecordIdFromUrl(url: string): string {
-  const match = url.match(/\/lightning\/r\/[^/]+\/([a-zA-Z0-9]{15,18})\//);
+  const match = url.match(/\/lightning\/r\/(?:[^/]+\/)?([a-zA-Z0-9]{15,18})\/view/);
   if (!match) {
     throw new Error(`Could not extract a Salesforce record Id from URL: ${url}`);
   }
