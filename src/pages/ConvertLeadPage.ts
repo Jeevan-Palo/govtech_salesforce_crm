@@ -12,12 +12,14 @@ export class ConvertLeadPage extends BasePage {
 
   /**
    * The Convert Lead modal's Account panel is a radio choice ("Create New Account" / "Choose
-   * Existing Account") plus an "Account Search" textbox and a live "X Account Matches" counter
-   * with a "Duplicate records list" region - not a simple typeahead lookup. Selects the first
-   * match if one is found, otherwise reverts to "Create New Account". Returns true if a new
-   * Account will be created.
+   * Existing Account") plus an "Account Search" lookup combobox. Typing opens a typeahead
+   * listbox with an actual record `option` (its accessible name is exactly the Account name) if
+   * one matches - this is the real signal of an existing match. The separate "X Account
+   * Matches"/"Duplicate records list" panel is a standard-Duplicate-Rule feature that is NOT
+   * configured in this org (observed to always read "0 Account Matches", even when a genuine
+   * match exists and is shown in the typeahead), so it is not used for detection.
    *
-   * The Account Search box is backed by Salesforce's SOSL search index, which can lag well behind
+   * The typeahead is backed by Salesforce's SOSL search index, which can lag well behind
    * just-created records (observed: still un-indexed after 90+ seconds). Pass `expectMatch: true`
    * (when the caller has reason to believe the Account should already be indexed, e.g. it's hours
    * old) to retry the search for up to `maxWaitMs` instead of giving up after a single pass.
@@ -33,22 +35,23 @@ export class ConvertLeadPage extends BasePage {
     // pointer clicks - click the label text instead of calling .check() on the input.
     await group.getByText('Choose Existing Account', { exact: true }).click();
     const searchBox = group.getByRole('combobox', { name: 'Account Search' });
-    const matchCounter = group.getByText(/^\d+ Account Matches?$/i).first();
+    // Exact match distinguishes the real record option from the always-present
+    // "Search for matching accounts '<name>' in Account" suggestion, whose accessible name
+    // merely contains the company name as a quoted substring.
+    const matchOption = group.getByRole('option', { name: companyName, exact: true });
 
     const deadline = Date.now() + (expectMatch ? maxWaitMs : 0);
     let hasMatch = false;
     do {
       await searchBox.fill('');
       await searchBox.fill(companyName);
-      await matchCounter.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
-      const matchCountText = (await matchCounter.textContent().catch(() => null))?.trim() ?? '0 Account Matches';
-      hasMatch = !/^0 Account Matches/i.test(matchCountText);
+      hasMatch = await matchOption.first().isVisible({ timeout: 10_000 }).catch(() => false);
       if (hasMatch || Date.now() >= deadline) break;
       await this.page.waitForTimeout(3_000);
     } while (Date.now() < deadline);
 
     if (hasMatch) {
-      await group.getByRole('region', { name: 'Duplicate records list' }).getByRole('link').first().click();
+      await matchOption.first().click();
       return false;
     }
     await group.getByText('Create New Account', { exact: true }).click();

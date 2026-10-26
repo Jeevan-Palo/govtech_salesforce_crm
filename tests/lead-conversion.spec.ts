@@ -4,11 +4,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const DUPLICATE_MATCH_STATE_FILE = path.join(__dirname, '..', '.test-state', 'duplicate-match.json');
-// Fixed (not randomized) identity reused across test runs - see note below on why.
+// Fixed (not randomized) identity reused across test runs - see note below on why. Email is also
+// fixed, since Contact duplicate-detection matches on name+email and a per-run random email would
+// never match the Contact created by an earlier (bootstrap) run.
 const DUPLICATE_MATCH_IDENTITY = {
   company: 'QA Automation DupMatch Co',
   firstName: 'QaAutomation',
   lastName: 'DupMatchContact',
+  email: 'qaautomation.dupmatchcontact@example-test.com',
 };
 
 function readDuplicateMatchState(): { accountId: string } | null {
