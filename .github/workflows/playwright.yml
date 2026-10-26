@@ -1,0 +1,57 @@
+name: Playwright Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run Playwright suite (Chromium + WebKit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      SF_BASE_URL: ${{ secrets.SF_BASE_URL }}
+      SF_USERNAME: ${{ secrets.SF_USERNAME }}
+      SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+      SF_SECURITY_TOKEN: ${{ secrets.SF_SECURITY_TOKEN }}
+      OTP_AUTOMATION_ENABLED: 'true'
+      OTP_IMAP_HOST: ${{ secrets.OTP_IMAP_HOST }}
+      OTP_IMAP_PORT: ${{ secrets.OTP_IMAP_PORT }}
+      OTP_IMAP_USER: ${{ secrets.OTP_IMAP_USER }}
+      OTP_IMAP_PASSWORD: ${{ secrets.OTP_IMAP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test results (traces, screenshots, videos, logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 14

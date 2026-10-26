@@ -126,6 +126,25 @@ Salesforce challenges any login from an unrecognized browser/device with a
 See [NOTES.md](NOTES.md) for the observed Lead→Opportunity conversion
 network call shape and which response fields are asserted on.
 
+## Continuous Integration
+
+`.github/workflows/playwright.yml` runs the full suite (Chromium + WebKit)
+on every push/PR to `main`, and uploads the HTML report + traces/screenshots
+as workflow artifacts regardless of pass/fail. It intentionally does **not**
+cache `storageState.json` between runs — CI runners are ephemeral, so every
+run exercises the real login + OTP-retrieval path (matching the assessment's
+"cache deleted in CI" scenario) rather than assuming a cache exists.
+
+Add these as **repository Settings → Secrets and variables → Actions**
+secrets before enabling the workflow:
+
+| Secret | Value |
+|---|---|
+| `SF_BASE_URL` | Your org's login URL |
+| `SF_USERNAME` / `SF_PASSWORD` | Developer org credentials |
+| `SF_SECURITY_TOKEN` | Only needed if your org enforces it |
+| `OTP_IMAP_HOST` / `OTP_IMAP_PORT` / `OTP_IMAP_USER` / `OTP_IMAP_PASSWORD` | A dedicated test-inbox app password (never a personal/production mailbox) |
+
 ## Known limitations
 
 - Locators in `src/pages/*` are written against Salesforce Lightning's
