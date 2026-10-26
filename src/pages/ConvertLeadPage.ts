@@ -16,18 +16,37 @@ export class ConvertLeadPage extends BasePage {
    * with a "Duplicate records list" region - not a simple typeahead lookup. Selects the first
    * match if one is found, otherwise reverts to "Create New Account". Returns true if a new
    * Account will be created.
+   *
+   * The Account Search box is backed by Salesforce's SOSL search index, which can lag well behind
+   * just-created records (observed: still un-indexed after 90+ seconds). Pass `expectMatch: true`
+   * (when the caller has reason to believe the Account should already be indexed, e.g. it's hours
+   * old) to retry the search for up to `maxWaitMs` instead of giving up after a single pass.
    */
-  async resolveAccount(companyName: string): Promise<boolean> {
+  async resolveAccount(
+    companyName: string,
+    options: { expectMatch?: boolean; maxWaitMs?: number } = {},
+  ): Promise<boolean> {
+    const { expectMatch = false, maxWaitMs = 90_000 } = options;
     const group = this.getGroup('Account');
     await this.waitForToastToClear();
     // The radio input itself is visually hidden behind its styled label, which intercepts
     // pointer clicks - click the label text instead of calling .check() on the input.
     await group.getByText('Choose Existing Account', { exact: true }).click();
-    await group.getByRole('combobox', { name: 'Account Search' }).fill(companyName);
+    const searchBox = group.getByRole('combobox', { name: 'Account Search' });
     const matchCounter = group.getByText(/^\d+ Account Matches?$/i).first();
-    await matchCounter.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
-    const matchCountText = (await matchCounter.textContent().catch(() => null))?.trim() ?? '0 Account Matches';
-    const hasMatch = !/^0 Account Matches/i.test(matchCountText);
+
+    const deadline = Date.now() + (expectMatch ? maxWaitMs : 0);
+    let hasMatch = false;
+    do {
+      await searchBox.fill('');
+      await searchBox.fill(companyName);
+      await matchCounter.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
+      const matchCountText = (await matchCounter.textContent().catch(() => null))?.trim() ?? '0 Account Matches';
+      hasMatch = !/^0 Account Matches/i.test(matchCountText);
+      if (hasMatch || Date.now() >= deadline) break;
+      await this.page.waitForTimeout(3_000);
+    } while (Date.now() < deadline);
+
     if (hasMatch) {
       await group.getByRole('region', { name: 'Duplicate records list' }).getByRole('link').first().click();
       return false;
@@ -158,6 +177,11 @@ export class ConvertLeadPage extends BasePage {
       }
     }
     throw new Error('Could not find the Opportunity link on the lead conversion confirmation screen.');
+  }
+
+  /** Dismisses the "Your lead has been converted" confirmation screen without navigating away. */
+  async closeConversionConfirmation(): Promise<void> {
+    await this.page.getByRole('button', { name: 'Cancel and close' }).click();
   }
 }
 
