@@ -230,14 +230,18 @@ secrets before enabling the workflow:
   email, since that's an org configuration precondition, not something the
   test can create.
 - After a lot of live test runs against the same dev org (this suite creates
-  a real Lead/Account/Contact per run), Salesforce's fuzzy duplicate-rule
-  Account Search in the Convert Lead dialog can start surfacing unrelated
-  prior fixture records as "possible matches" for a brand-new Account name,
-  occasionally interrupting the conversion smoke test. This is org test-data
-  clutter from repeated runs, not a defect in the suite - periodically
-  cleaning out old fixture Accounts/Leads/Opportunities in the dev org avoids
-  it. `npm run test:smoke` is the fastest way to get a quick Chromium +
-  WebKit confidence check without a full run; run it with `--workers=1` if
-  you hit this, since the conversion flow is the heaviest single action in
-  the suite and benefits from not contending with a second worker for the
-  same live org.
+  a real Lead/Account/Contact per run), Salesforce's standard Account
+  duplicate rule can surface unrelated prior fixture records as "possible
+  matches" for a brand-new Account, occasionally slowing down (though not
+  blocking - "Create New Account" stays selected) the conversion test. Two
+  root causes were found and fixed in `testDataFactory.ts`: (1) every
+  generated Website shared one literal registrable domain
+  (`example-test.com`), which Salesforce's Website match rule compares by
+  normalized domain regardless of company name - fixed by generating a
+  unique domain per record; (2) the company-name generator's word pool was
+  small enough (60 combinations) that, after hundreds of runs, two records
+  could share the same "LastName Suffix" text, which Salesforce's fuzzy
+  name matching treated as an exact match once the trailing random id was
+  discounted as noise - fixed by widening the word pools to ~960
+  combinations. `npm run test:smoke` is the fastest way to get a quick
+  Chromium + WebKit confidence check without a full run.
