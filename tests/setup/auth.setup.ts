@@ -30,7 +30,10 @@ async function isExistingSessionValid(): Promise<boolean> {
 setup('authenticate', async ({ page }) => {
   setup.setTimeout(120_000);
 
-  if (await isExistingSessionValid()) {
+  // Named so the report always shows whether this run hit the cached-session fast path or a
+  // real login - without this, Part C.b's OTP step below only ever appears on a cache miss.
+  const cachedSessionValid = await setup.step('Check cached session validity', isExistingSessionValid);
+  if (cachedSessionValid) {
     logger.info('Cached storageState is still valid; skipping interactive login.');
     return;
   }
@@ -42,10 +45,12 @@ setup('authenticate', async ({ page }) => {
   await loginPage.goto();
   await loginPage.login(env.username, env.password);
 
-  if (await loginPage.isVerificationChallengePresented()) {
-    logger.info('Email verification challenge detected, attempting automated retrieval.');
-    await loginPage.completeVerificationChallenge(requestedAt);
-  }
+  await setup.step('Part C.b - automate the email verification (OTP) challenge, see README.md', async () => {
+    if (await loginPage.isVerificationChallengePresented()) {
+      logger.info('Email verification challenge detected, attempting automated retrieval.');
+      await loginPage.completeVerificationChallenge(requestedAt);
+    }
+  });
 
   await loginPage.assertLoggedIn();
 
