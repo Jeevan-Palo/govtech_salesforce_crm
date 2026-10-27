@@ -33,7 +33,10 @@ export class LeadDetailPage extends BasePage {
     await this.waitForToastToClear();
     await this.page.getByRole('option', { name: newStatus, exact: true }).click();
     await this.page.getByRole('button', { name: 'Mark as Current Status' }).click();
-    await this.getToastMessage();
+    // Best-effort confirmation only - its return value is unused and, on WebKit, this toast can
+    // fail to render in time at all. The actual state change is verified by the caller polling
+    // the Details tab field afterward, so a missing toast here must not fail the whole action.
+    await this.getToastMessage().catch(() => '');
   }
 
   async openDetailsTab(): Promise<void> {

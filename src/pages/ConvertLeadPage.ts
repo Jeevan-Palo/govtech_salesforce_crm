@@ -69,17 +69,45 @@ export class ConvertLeadPage extends BasePage {
    * Lead's name/email and reports "X Contact Matches detected". Selects the first match if one
    * is found, otherwise leaves "Create New Contact" selected. Returns true if a new Contact will
    * be created.
+   *
+   * Subject to the same SOSL index lag as the Account search above (see resolveAccount) - pass
+   * `expectMatch: true` to retry for up to `maxWaitMs` instead of giving up after a single read.
    */
-  async resolveContact(fullName: string): Promise<boolean> {
+  async resolveContact(
+    fullName: string,
+    options: { expectMatch?: boolean; maxWaitMs?: number } = {},
+  ): Promise<boolean> {
+    const { expectMatch = false, maxWaitMs = 90_000 } = options;
     const group = this.getGroup('Contact');
     const matchStatus = group.getByText(/^\d+ Contact Matches? detected/i).first();
-    const matchStatusText = (await matchStatus.textContent().catch(() => null))?.trim() ?? '0 Contact Matches detected';
-    const hasMatch = !/^0 Contact Matches/i.test(matchStatusText);
+
+    const checkForMatch = async (): Promise<boolean> => {
+      // A short, explicit per-check timeout is essential here - without one this falls back to
+      // the page's default (much longer) action timeout, so a handful of slow failed checks can
+      // burn through the whole expect.poll budget instead of many quick retries (as resolveAccount
+      // above already does via isVisible({ timeout: 10_000 })).
+      const text = (await matchStatus.textContent({ timeout: 5_000 }).catch(() => null))?.trim() ?? '0 Contact Matches detected';
+      return !/^0 Contact Matches/i.test(text);
+    };
+
+    const hasMatch = expectMatch
+      ? await expect
+          .poll(checkForMatch, { timeout: maxWaitMs, intervals: [3_000] })
+          .toBe(true)
+          .then(() => true, () => false)
+      : await checkForMatch();
+
     if (hasMatch) {
-      await group.getByText('Choose Existing Contact', { exact: true }).click();
-      const match = group.getByRole('link', { name: fullName, exact: false }).first();
-      if (await match.isVisible({ timeout: 3_000 }).catch(() => false)) {
-        await match.click();
+      // The styled `span.slds-radio` wrapper around each radio's raw <input> visually covers it
+      // and intercepts plain clicks (confirmed via trace - the correct <input> resolves every
+      // time, but Playwright's actionability check blocks on the overlay) - same root cause as
+      // the Account radio's hidden-behind-its-label issue above, just needing `force: true`
+      // instead since there's no separate clickable label text that reliably toggles it here.
+      const existingContactRadio = group.getByRole('radio', { name: 'Choose Existing Contact' });
+      await existingContactRadio.click({ force: true });
+      const matchRadio = group.getByRole('radio', { name: fullName, exact: false }).first();
+      if (await matchRadio.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await matchRadio.click({ force: true });
       }
       return false;
     }

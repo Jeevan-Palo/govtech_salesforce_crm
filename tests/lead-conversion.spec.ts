@@ -204,7 +204,10 @@ test.describe('Part B - Lead to Opportunity Conversion', () => {
     leadDetailPage,
     convertLeadPage,
   }, testInfo) => {
-    test.setTimeout(120_000);
+    // Account and Contact matches are polled sequentially (resolveAccount then resolveContact),
+    // each able to retry up to 90s for SOSL index lag, plus up to 60s for the post-Convert
+    // confirmation screen - the worst case comfortably exceeds a 120s budget.
+    test.setTimeout(300_000);
     // Mirrors the existing-Account-only test above, but fixes BOTH company and full name across
     // runs (only email is randomized) so that, once indexed, Salesforce resolves an existing
     // match for the Account AND the Contact in the same conversion - the one branch the other two
@@ -235,7 +238,7 @@ test.describe('Part B - Lead to Opportunity Conversion', () => {
       async () => {
         await leadDetailPage.clickConvert();
         const account = await convertLeadPage.resolveAccount(company, { expectMatch: Boolean(existingAccountId) });
-        const contact = await convertLeadPage.resolveContact(fullName);
+        const contact = await convertLeadPage.resolveContact(fullName, { expectMatch: Boolean(existingContactId) });
         return { willCreateAccount: account, willCreateContact: contact };
       },
     );
