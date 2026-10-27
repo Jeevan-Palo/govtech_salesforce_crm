@@ -24,7 +24,15 @@ export type LeadData = {
 
 const SALUTATIONS = ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Prof.'];
 const FIRST_NAMES = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Jamie', 'Avery', 'Cameron', 'Drew'];
-const LAST_NAMES = ['Tan', 'Lim', 'Ng', 'Goh', 'Chua', 'Koh', 'Teo', 'Wong', 'Lee', 'Sim'];
+const LAST_NAMES = [
+  'Tan', 'Lim', 'Ng', 'Goh', 'Chua', 'Koh', 'Teo', 'Wong', 'Lee', 'Sim',
+  'Ong', 'Low', 'Yeo', 'Toh', 'Chan', 'Ho', 'Seah', 'Ang', 'Foo', 'Lau',
+];
+// A middle word plus the suffix gives a much larger combinatorial space than suffix alone -
+// Salesforce's fuzzy Account-name duplicate matching appears to discount the trailing random
+// hex as noise, so two records sharing just "LastName Suffix" can look like an exact match once
+// enough fixture Accounts accumulate in a long-lived dev org (observed live on this org).
+const COMPANY_MIDDLES = ['Pacific', 'Summit', 'Harbour', 'Orchard', 'Meridian', 'Crescent', 'Union', 'Vista'];
 const COMPANY_SUFFIXES = ['Holdings', 'Technologies', 'Solutions', 'Global', 'Industries', 'Ventures'];
 const JOB_TITLES = ['IT Manager', 'Procurement Lead', 'Operations Director', 'Business Analyst', 'CTO'];
 const LEAD_SOURCES = ['Web', 'Phone Inquiry', 'Partner Referral', 'Purchased List', 'Other'];
@@ -58,13 +66,17 @@ export function createLeadData(overrides: Partial<LeadData> = {}): LeadData {
     salutation: pick(SALUTATIONS),
     firstName,
     lastName,
-    company: `${pick(LAST_NAMES)} ${pick(COMPANY_SUFFIXES)} ${unique}`,
+    company: `${pick(LAST_NAMES)} ${pick(COMPANY_MIDDLES)} ${pick(COMPANY_SUFFIXES)} ${unique}`,
     title: pick(JOB_TITLES),
     email: `${firstName}.${lastName}.${unique}@example-test.com`.toLowerCase(),
     phone: `+65${randomDigits(8)}`,
     mobile: `+65${randomDigits(8)}`,
     fax: `+65${randomDigits(8)}`,
-    website: `https://${unique}.example-test.com`,
+    // The registrable domain itself (not just a subdomain) must vary per record: Salesforce's
+    // standard Account duplicate rule matches on Website by comparing the normalized registrable
+    // domain, so every record sharing one fixed domain (e.g. "example-test.com") looks like a
+    // Website match against every other test-created Account regardless of company name.
+    website: `https://${unique}.test`,
     leadSource: pick(LEAD_SOURCES),
     industry: pick(INDUSTRIES),
     rating: pick(RATINGS),
