@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { expect, Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 export class AppLauncherPage extends BasePage {
@@ -14,12 +14,12 @@ export class AppLauncherPage extends BasePage {
 
     await this.page.getByRole('button', { name: 'App Launcher' }).click();
     await this.page.getByPlaceholder('Search apps and items...').fill(appName);
-    // The search-results list re-renders asynchronously after typing (slower on WebKit) - give it
-    // a moment to settle before looking for the option, rather than relying solely on
-    // actionability auto-waiting on a possibly-stale option list.
-    await this.page.waitForTimeout(500);
     // Exact match - a substring match can hit the wrong app (e.g. "Sales" also matches "Salesforce Chatter").
-    await this.page.getByRole('option', { name: appName, exact: true }).first().click({ timeout: 20_000 });
+    const option = this.page.getByRole('option', { name: appName, exact: true }).first();
+    // The search-results list re-renders asynchronously after typing (slower on WebKit); wait for
+    // the option to actually settle rather than guessing how long that takes.
+    await expect(option).toBeVisible({ timeout: 20_000 });
+    await option.click();
     await this.waitForLightningReady();
   }
 }

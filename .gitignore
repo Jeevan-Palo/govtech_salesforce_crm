@@ -10,3 +10,6 @@ node_modules/
 
 # Secrets - never commit real credentials
 .env
+
+# OS files
+.DS_Store

@@ -92,8 +92,8 @@ flowchart TD
 
 | Requirement | Implementation |
 |---|---|
-| Create a Lead with required fields | [LeadFormPage.fill()](src/pages/LeadFormPage.ts) + `save()`, driven by randomized [createLeadData()](src/data/testDataFactory.ts) so parallel workers never collide on name/email/company. |
-| Validate the generated Lead Id | [LeadDetailPage.getLeadId18()](src/pages/LeadDetailPage.ts) reads the Id out of the post-save URL and converts 15→18 chars via [salesforceId.ts](src/utils/salesforceId.ts)'s checksum algorithm, asserted in [tests/lead-creation.spec.ts](tests/lead-creation.spec.ts). |
+| Create a Lead with complete Lead information | [LeadFormPage.fill()](src/pages/LeadFormPage.ts) + `save()` fills 19 fields (name/salutation, company, title, email, phone/mobile/fax, website, lead source, industry, rating, annual revenue, employee count, full address, description) via randomized [createLeadData()](src/data/testDataFactory.ts) so parallel workers never collide on name/email/company; [tests/lead-creation.spec.ts](tests/lead-creation.spec.ts) asserts every one of them back on the saved record's Details tab. |
+| Validate the generated Lead Id | [LeadDetailPage.getRawLeadId()](src/pages/LeadDetailPage.ts) reads the raw Id straight out of the post-save URL; the test asserts it directly (18 chars, `00Q` Lead prefix) rather than asserting on [salesforceId.ts](src/utils/salesforceId.ts)'s `convertTo18()` output, which is a no-op pass-through for already-18-char ids and so could never fail that check. |
 | Edit a Lead (status) | [LeadDetailPage.editStatus()](src/pages/LeadDetailPage.ts) — Lead Status in Lightning is a **Path component** (a `listbox` of stage `option`s + a confirm button), not a plain field, so it's driven accordingly rather than via a generic combobox. |
 
 ### Part B — Lead → Opportunity conversion
@@ -103,7 +103,8 @@ flowchart TD
 | Convert a Lead | [ConvertLeadPage.convertAndCaptureResponse()](src/pages/ConvertLeadPage.ts) drives the real "Convert Lead" dialog and reads the resulting Account/Contact/Opportunity Ids off the confirmation screen's record links. |
 | Check whether the Account already exists | [ConvertLeadPage.resolveAccount()](src/pages/ConvertLeadPage.ts) types into the "Account Search" typeahead and looks for an exact-name `option` match; falls back to "Create New Account" if none appears. |
 | Check whether the Contact already exists | [ConvertLeadPage.resolveContact()](src/pages/ConvertLeadPage.ts) reads Salesforce's own auto-detected "X Contact Matches detected" status text (there's no manual search box for Contact). |
-| Test both branches (new vs. existing) | [tests/lead-conversion.spec.ts](tests/lead-conversion.spec.ts) has one test for the all-new path and one for the existing-Account path (see §8 for why the existing-match test needs a persisted fixture). |
+| Test all three branches (new/new, existing-Account/new-Contact, existing/existing) | [tests/lead-conversion.spec.ts](tests/lead-conversion.spec.ts) has three tests covering each combination (see §8 for why the existing-match tests need a persisted fixture). |
+| Confirm the *correct* Account/Contact were linked, not just that conversion "succeeded" | The all-new test also asserts `OpportunityDetailPage.assertOwner()` (against the Lead's own Owner, carried over by default), `assertAccountName()` against the Lead's company, and navigates to the returned Contact Id to assert its record header shows the expected full name. |
 
 ### Part B — API / response validation (bonus)
 
@@ -120,8 +121,8 @@ format. The full captured request/response payload is documented in
 
 | Scenario | Implementation |
 |---|---|
-| Missing mandatory fields | [tests/negative-scenarios.spec.ts](tests/negative-scenarios.spec.ts) saves a blank form and asserts `LeadFormPage.getFieldErrorMessages()` reports "complete this field" errors. |
-| Duplicate Lead | Creates the same identity twice and asserts `LeadFormPage.getDuplicateWarningText()`; this org-configuration-dependent check self-skips (`test.skip`) if no duplicate rule is configured for Lead email, rather than failing on an environment precondition the test can't control. |
+| Missing mandatory fields | [tests/negative-scenarios.spec.ts](tests/negative-scenarios.spec.ts) saves a blank form and asserts `LeadFormPage.getInvalidFieldNames()` - which reads the real accessible "We hit a snag." error-summary banner, not a CSS error class - names the two actually-required fields ("Name", "Company"). |
+| Duplicate Lead | Creates the same identity twice and uses `LeadFormPage.saveExpectingDuplicateBlock()` - which clicks Save exactly once and asserts the hard "Similar Records Exist" dialog, rather than clicking through it the way `save()` does for happy-path tests (clicking through would dismiss the very evidence this test is checking for). Self-skips (`test.skip`) if no duplicate rule fires on this org for this field combination, rather than failing on an environment precondition the test can't control. |
 
 ### Part C.a — Shadow DOM / dynamic Lightning component evidence
 
@@ -181,21 +182,41 @@ These are the non-obvious choices that make the suite reliable against a
    underneath; `BasePage.waitForToastToClear()` clicks the toast's own close
    button rather than passing time and hoping.
 4. **Two independent "duplicate" mechanisms exist in this org — don't
-   conflate them.** A soft `/possible duplicate/i` warning banner (checked
-   by the negative-scenarios test) is different from a **hard** Lead-level
-   "Similar Records Exist" block dialog that fires only when a Lead becomes
-   an *exact* duplicate (same company+first+last+email) of a prior Lead. The
-   existing-Account-match conversion test deliberately randomizes
+   conflate them, and don't click through the one you're trying to prove.**
+   A soft `/possible duplicate/i` warning banner is different from a
+   **hard** Lead-level "Similar Records Exist" block dialog. `save()` clicks
+   through the dialog so happy-path tests can proceed past it, but the
+   negative-scenarios duplicate test uses the dedicated
+   `saveExpectingDuplicateBlock()` instead, which stops at that dialog and
+   asserts it directly — clicking through would both create an unintended
+   duplicate Lead and dismiss the exact evidence the test is checking for.
+   The existing-Account-match conversion test deliberately randomizes
    name/email per run and only fixes `company`, specifically to avoid ever
-   tripping the hard block.
-5. **The Account-match test can't create-then-immediately-search.**
+   tripping this block unintentionally mid-conversion-flow.
+5. **The Account/Contact-match tests can't create-then-immediately-search.**
    Salesforce's SOSL search index can lag 90+ seconds (observed, sometimes
-   much longer) behind a just-created record. Instead of a flaky in-test
-   wait, `lead-conversion.spec.ts` persists the resolved Account Id to a
-   local, gitignored `.test-state/duplicate-match.json` — the first-ever run
-   bootstraps the fixture (expected to hit "create new"), and every run
-   after the index catches up exercises the real existing-match path.
-6. **Local parallelism can exceed CI's.** `workers: process.env.CI ? 2 :
+   much longer, for Account search; the Contact auto-match status appears to
+   be similarly index-backed) behind a just-created record. Instead of a
+   flaky in-test wait, `lead-conversion.spec.ts` checks whether the
+   fixed-identity Account/Contact already exist via [src/utils/salesforceApi.ts](src/utils/salesforceApi.ts)
+   — a direct SOQL query (immediately consistent, unlike the UI's SOSL-backed
+   search) using a plain username+password+security-token SOAP login, no
+   Connected App needed — falling back to a local, gitignored, per-project
+   `.test-state/*.<project>.json` file only when that API call fails (e.g.
+   `SF_SECURITY_TOKEN` isn't set). Either way, the first-ever run bootstraps
+   the fixture (expected to hit "create new"), and later runs - once the
+   index catches up - exercise the real existing-match path. The API path is
+   what makes the existing-match tests work correctly on a fresh clone or in
+   CI (not just "eventually, locally") once `SF_SECURITY_TOKEN` is set there.
+6. **Chromium and WebKit must never race on the same fixed-identity fixture.**
+   Both browser projects run the same spec file concurrently against the
+   same live org. The fixed Account/Contact names used by the existing-match
+   tests embed the Playwright project name (e.g. `... Co (chromium)`), and
+   their state files are named per-project too — so the two projects always
+   resolve, create, and persist completely independent fixtures and can
+   never read one project's just-created, not-yet-indexed record as the
+   other's expected match.
+7. **Local parallelism can exceed CI's.** `workers: process.env.CI ? 2 :
    undefined` means a developer machine may auto-detect more workers than
    CI's fixed `2`, putting more concurrent load on the live org locally than
    CI ever sees. If the *full* suite flakes locally with timeouts (not
@@ -208,6 +229,7 @@ These are the non-obvious choices that make the suite reliable against a
 |---|---|
 | [src/config/env.ts](src/config/env.ts) | Validated environment configuration |
 | [src/utils/logger.ts](src/utils/logger.ts) | Console + `test-results/run.log` logging |
+| [src/utils/salesforceApi.ts](src/utils/salesforceApi.ts) | SOAP login + direct SOQL lookups, used as ground truth for whether a fixed-identity test fixture already exists (immune to the UI search's SOSL indexing lag) |
 | [src/utils/salesforceId.ts](src/utils/salesforceId.ts) | 15↔18 char Salesforce Id conversion |
 | [src/utils/otpMailReader.ts](src/utils/otpMailReader.ts) | IMAP polling for the login OTP email |
 | [src/data/testDataFactory.ts](src/data/testDataFactory.ts) | Dependency-free randomized Lead data |

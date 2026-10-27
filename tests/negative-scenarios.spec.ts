@@ -2,18 +2,23 @@ import { test, expect } from './fixtures/base-fixtures';
 import { createLeadData } from '@src/data/testDataFactory';
 
 test.describe('Part B - Negative Scenarios', () => {
-  test('shows validation errors when saving a Lead with missing mandatory fields', async ({
-    appLauncherPage,
-    leadFormPage,
-  }) => {
-    await appLauncherPage.openApp('Sales');
-    await leadFormPage.openNewLeadForm();
-    await leadFormPage.save(); // Save immediately with every field left blank.
+  test(
+    'shows validation errors when saving a Lead with missing mandatory fields',
+    { tag: '@smoke' },
+    async ({ appLauncherPage, leadFormPage }) => {
+      await appLauncherPage.openApp('Sales');
+      await leadFormPage.openNewLeadForm();
+      await leadFormPage.save(); // Save immediately with every field left blank.
 
-    const errors = await leadFormPage.getFieldErrorMessages();
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.join(' ')).toMatch(/complete this field/i);
-  });
+      // Assert on the real accessible error banner ("We hit a snag." / "Review the following
+      // fields"), and that it names the two actually-required fields specifically - not just
+      // that a `.slds-has-error`-classed element exists somewhere on the page. "Name" is Lead's
+      // compound Salutation/First/Last field (no standalone "Last Name" entry in this banner,
+      // same compounding behavior seen on the Lead detail page's header).
+      const invalidFields = await leadFormPage.getInvalidFieldNames();
+      expect(invalidFields).toEqual(expect.arrayContaining(['Name', 'Company']));
+    },
+  );
 
   test('flags a duplicate Lead when duplicate rules are configured for the org', async ({
     appLauncherPage,
@@ -31,10 +36,11 @@ test.describe('Part B - Negative Scenarios', () => {
     await appLauncherPage.openApp('Sales');
     await leadFormPage.openNewLeadForm();
     await leadFormPage.fill({ ...lead, company: `${lead.company}-dup` });
-    await leadFormPage.save();
+    // Must NOT use save() here: it clicks through the hard "Similar Records Exist" dialog,
+    // which is itself the evidence this test is looking for.
+    const { blocked, dialogText } = await leadFormPage.saveExpectingDuplicateBlock();
 
-    const duplicateWarning = await leadFormPage.getDuplicateWarningText();
-    test.skip(duplicateWarning === null, 'No duplicate rule is configured on this org for Lead Email.');
-    expect(duplicateWarning).toMatch(/duplicate/i);
+    test.skip(!blocked, 'No Lead duplicate rule on this org fired for this field combination.');
+    expect(dialogText).toMatch(/duplicate/i);
   });
 });

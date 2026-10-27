@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { expect, Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { LeadData } from '../data/testDataFactory';
 
@@ -12,9 +12,23 @@ export class LeadFormPage extends BasePage {
     return this.page.getByRole('dialog', { name: 'New Lead' });
   }
 
+  // Required fields render their label with a leading "*" (e.g. "*Last Name"), so match it optionally.
+  private byLabel(label: string) {
+    return this.getDialog().getByLabel(new RegExp(`^\\*?${label}$`));
+  }
+
   async openNewLeadForm(): Promise<void> {
+    // A lingering toast (e.g. from a prior save, or fill()'s own retry after a mid-fill crash)
+    // can intercept this click; re-clear and retry once rather than failing outright.
     await this.waitForToastToClear();
-    await this.page.getByRole('link', { name: 'Leads' }).click();
+    const leadsLinkClicked = await this.page
+      .getByRole('link', { name: 'Leads' })
+      .click({ timeout: 15_000 })
+      .then(() => true, () => false);
+    if (!leadsLinkClicked) {
+      await this.waitForToastToClear();
+      await this.page.getByRole('link', { name: 'Leads' }).click();
+    }
     await this.waitForLightningReady();
 
     // Salesforce occasionally throws an uncaught LWC error ("Toast: please provide at least the
@@ -23,16 +37,26 @@ export class LeadFormPage extends BasePage {
     // the whole "New Lead" modal within ~1s of it opening. Detect this and retry.
     const dialog = this.getDialog();
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await this.page.getByRole('button', { name: 'New', exact: true }).click();
+      // A prior save's confirmation toast can still be covering the "New" button long enough to
+      // intercept this click (more so now that fillOnce() fills many more fields, so saves take
+      // longer) - re-clear it on every attempt instead of assuming the earlier clear sufficed.
+      await this.waitForToastToClear();
+      const clicked = await this.page
+        .getByRole('button', { name: 'New', exact: true })
+        .click({ timeout: 15_000 })
+        .then(() => true, () => false);
+      if (!clicked) continue;
       const appeared = await dialog.waitFor({ state: 'visible', timeout: 15_000 }).then(
         () => true,
         () => false,
       );
       if (!appeared) continue;
-      await this.page.waitForTimeout(1_500);
-      if (await dialog.isVisible().catch(() => false)) {
-        return;
-      }
+      // Resolves as soon as the crash-and-unmount happens, instead of always blocking 1.5s.
+      const crashed = await dialog.waitFor({ state: 'hidden', timeout: 1_500 }).then(
+        () => true,
+        () => false,
+      );
+      if (!crashed) return;
     }
     throw new Error('"New Lead" modal kept closing unexpectedly after multiple attempts.');
   }
@@ -53,24 +77,48 @@ export class LeadFormPage extends BasePage {
   }
 
   private async fillOnce(lead: LeadData): Promise<void> {
-    const dialog = this.getDialog();
-    // Required fields render their label with a leading "*" (e.g. "*Last Name"), so match it optionally.
-    const byLabel = (label: string) => dialog.getByLabel(new RegExp(`^\\*?${label}$`));
+    const byLabel = (label: string) => this.byLabel(label);
+    await this.selectCombobox('Salutation', lead.salutation);
     await byLabel('First Name').fill(lead.firstName);
     await byLabel('Last Name').fill(lead.lastName);
     await byLabel('Company').fill(lead.company);
     // Filling Company/Last Name with values matching an existing record can trigger an async
-    // duplicate-rule check that re-renders the form, detaching elements mid-interaction.
-    await this.page.waitForTimeout(1_500);
+    // duplicate-rule check that re-renders the form, detaching elements mid-interaction; wait for
+    // the committed value to settle rather than guessing how long that re-render takes.
+    await expect(byLabel('Company')).toHaveValue(lead.company, { timeout: 10_000 });
+    await byLabel('Title').fill(lead.title);
     await byLabel('Email').fill(lead.email);
     await byLabel('Phone').fill(lead.phone);
-    await byLabel('Title').fill(lead.title);
+    await byLabel('Mobile').fill(lead.mobile);
+    await byLabel('Fax').fill(lead.fax);
+    await byLabel('Website').fill(lead.website);
     await this.selectCombobox('Lead Source', lead.leadSource);
+    await this.selectCombobox('Industry', lead.industry);
+    await this.selectCombobox('Rating', lead.rating);
+    await byLabel('Annual Revenue').fill(lead.annualRevenue);
+    await byLabel('No. of Employees').fill(lead.numberOfEmployees);
+    await byLabel('Street').fill(lead.street);
+    await byLabel('City').fill(lead.city);
+    await byLabel('Zip/Postal Code').fill(lead.zipPostalCode);
+    await byLabel('Description').fill(lead.description);
+  }
+
+  /**
+   * Salesforce's real-time duplicate check can show an inline "Similar Records Exist" warning
+   * popover anchored directly above the dialog's action bar, overlapping and blocking clicks on
+   * the Save button - dismiss it first if present rather than letting the click time out.
+   */
+  private async dismissInlineDuplicateWarning(): Promise<void> {
+    const closeButton = this.page.getByRole('button', { name: 'Close error dialog' });
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click().catch(() => {});
+    }
   }
 
   async save(): Promise<void> {
     const dialog = this.getDialog();
     const saveButton = dialog.getByRole('button', { name: 'Save', exact: true });
+    await this.dismissInlineDuplicateWarning();
     await saveButton.click();
 
     // Salesforce's real-time duplicate check can pop a "Similar Records Exist" info dialog on the
@@ -88,13 +136,38 @@ export class LeadFormPage extends BasePage {
     await dialog.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
   }
 
-  async getFieldErrorMessages(): Promise<string[]> {
-    const errors = this.page.locator('.slds-has-error .slds-form-element__help');
-    await errors
-      .first()
+  /**
+   * Save exactly once and report the hard "Similar Records Exist" block dialog, without ever
+   * clicking through it - unlike save(), which clicks through to let happy-path tests proceed.
+   * Clicking through here would dismiss the dialog that IS the evidence a duplicate-rule test
+   * is asserting on, and the Lead is correctly never created while this dialog is blocking.
+   */
+  async saveExpectingDuplicateBlock(): Promise<{ blocked: boolean; dialogText: string | null }> {
+    const dialog = this.getDialog();
+    await this.dismissInlineDuplicateWarning();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+
+    const similarRecordsDialog = this.page.getByRole('dialog', { name: 'Similar Records Exist' }).first();
+    const blocked = await similarRecordsDialog
       .waitFor({ state: 'visible', timeout: 10_000 })
-      .catch(() => {});
-    return errors.allTextContents();
+      .then(() => true, () => false);
+    if (!blocked) {
+      return { blocked: false, dialogText: null };
+    }
+    return { blocked: true, dialogText: await similarRecordsDialog.textContent() };
+  }
+
+  /**
+   * Reads the invalid-field names straight from Salesforce's own inline validation-summary
+   * popover ("We hit a snag." / "Review the following fields") - the actual accessible error
+   * banner a screen-reader user would hear, not a CSS error class. Each listed field is a real
+   * link (clicking it focuses that field), so this also proves this is the full set of fields
+   * actually in error, not just that an error appeared somewhere on the page.
+   */
+  async getInvalidFieldNames(): Promise<string[]> {
+    const banner = this.page.getByRole('dialog', { name: 'We hit a snag.' });
+    await banner.waitFor({ state: 'visible', timeout: 10_000 });
+    return banner.getByRole('link').allTextContents();
   }
 
   async getDuplicateWarningText(): Promise<string | null> {

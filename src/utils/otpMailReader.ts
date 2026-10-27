@@ -3,7 +3,14 @@ import { simpleParser } from 'mailparser';
 import { env } from '../config/env';
 import { logger } from './logger';
 
-const CODE_REGEX = /\b(\d{6})\b/;
+// Prefer a code anchored to "verification code" wording; fall back to a bare 6-digit match for
+// orgs/locales that phrase the email differently.
+const ANCHORED_CODE_REGEX = /verification code\D{0,40}(\d{6})\b/i;
+const LOOSE_CODE_REGEX = /\b(\d{6})\b/;
+
+// IMAP SEARCH SINCE only filters by calendar day, not time, so an older same-day code would
+// otherwise match - allow a little clock-skew slack rather than requiring internalDate >= sentAfter exactly.
+const CLOCK_SKEW_TOLERANCE_MS = 60_000;
 
 /**
  * Polls an IMAP inbox for Salesforce's "Verify Your Identity" email and extracts the
@@ -16,6 +23,7 @@ export async function fetchLatestVerificationCode(sentAfter: Date): Promise<stri
   }
 
   const deadline = Date.now() + env.otp.pollTimeoutMs;
+  const cutoff = sentAfter.getTime() - CLOCK_SKEW_TOLERANCE_MS;
 
   while (Date.now() < deadline) {
     const client = new ImapFlow({
@@ -33,11 +41,18 @@ export async function fetchLatestVerificationCode(sentAfter: Date): Promise<stri
         const uids = await client.search({ since: sentAfter, from: 'salesforce.com' }, { uid: true });
         const sortedUids = (Array.isArray(uids) ? uids : []).sort((a, b) => b - a);
         for (const uid of sortedUids) {
-          const message = await client.download(uid, undefined, { uid: true });
-          if (!message.content) continue;
-          const parsed = await simpleParser(message.content);
+          const message = await client.fetchOne(String(uid), { internalDate: true, source: true }, { uid: true });
+          if (!message || !message.source) continue;
+
+          // The server's own delivery timestamp - not the email's own Date: header, which a
+          // sender's clock could misreport - so a stale code from earlier the same day is skipped
+          // even though SINCE's day-level granularity let it through the server-side search.
+          const internalDate = message.internalDate ? new Date(message.internalDate).getTime() : 0;
+          if (internalDate < cutoff) continue;
+
+          const parsed = await simpleParser(message.source);
           const text = `${parsed.subject ?? ''} ${parsed.text ?? ''}`;
-          const match = text.match(CODE_REGEX);
+          const match = text.match(ANCHORED_CODE_REGEX) ?? text.match(LOOSE_CODE_REGEX);
           if (match) {
             logger.info('Retrieved Salesforce verification code from inbox');
             return match[1];

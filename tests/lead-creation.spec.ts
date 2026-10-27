@@ -1,7 +1,10 @@
 import { test, expect } from './fixtures/base-fixtures';
 
 test.describe('Part B - Lead Creation & Management', () => {
-  test('creates a new Lead and validates the generated 18-char Lead Id and saved data', async ({
+  test(
+    'creates a new Lead and validates the generated 18-char Lead Id and saved data',
+    { tag: '@smoke' },
+    async ({
     page,
     appLauncherPage,
     leadFormPage,
@@ -13,14 +16,48 @@ test.describe('Part B - Lead Creation & Management', () => {
     await leadFormPage.fill(uniqueLead);
     await leadFormPage.save();
 
-    const leadId = await leadDetailPage.getLeadId18();
-    expect(leadId).toMatch(/^[a-zA-Z0-9]{18}$/);
+    // Assert on the actual generated Id's own shape - not convertTo18()'s output, which is a
+    // no-op pass-through for already-18-char ids (as this org's Lightning URLs always are) and
+    // so could never fail this check.
+    const rawLeadId = await leadDetailPage.getRawLeadId();
+    expect(rawLeadId).toHaveLength(18);
+    expect(rawLeadId).toMatch(/^00Q/);
 
     // Scoped to the record header's name field - a plain getByText() match also hits the
     // save-confirmation toast (which repeats the full name) and is a strict-mode violation.
-    await expect(page.locator('lightning-formatted-name', { hasText: uniqueLead.lastName })).toBeVisible();
+    const nameHeader = page.locator('lightning-formatted-name', { hasText: uniqueLead.lastName });
+    await expect(nameHeader).toBeVisible();
+    expect(await nameHeader.textContent()).toContain(uniqueLead.salutation);
+
+    // The default landing tab only renders a compact subset of fields (e.g. Company/Email/Phone);
+    // less-common fields like Fax/Industry/Address only mount once the Details tab is active.
+    await leadDetailPage.openDetailsTab();
+
+    // Covers every field actually filled by leadFormPage.fill(), not just a handful.
     expect(await leadDetailPage.getFieldValueByLabel('Company')).toContain(uniqueLead.company);
+    expect(await leadDetailPage.getFieldValueByLabel('Title')).toContain(uniqueLead.title);
     expect(await leadDetailPage.getFieldValueByLabel('Email')).toContain(uniqueLead.email);
+    expect(await leadDetailPage.getFieldValueByLabel('Phone')).toContain(uniqueLead.phone);
+    expect(await leadDetailPage.getFieldValueByLabel('Mobile')).toContain(uniqueLead.mobile);
+    expect(await leadDetailPage.getFieldValueByLabel('Fax')).toContain(uniqueLead.fax);
+    expect(await leadDetailPage.getFieldValueByLabel('Website')).toContain(uniqueLead.website);
+    expect(await leadDetailPage.getFieldValueByLabel('Lead Source')).toContain(uniqueLead.leadSource);
+    expect(await leadDetailPage.getFieldValueByLabel('Industry')).toContain(uniqueLead.industry);
+    expect(await leadDetailPage.getFieldValueByLabel('Rating')).toContain(uniqueLead.rating);
+    expect(await leadDetailPage.getFieldValueByLabel('Description')).toContain(uniqueLead.description);
+
+    // Lightning renders these with currency/thousands formatting (e.g. "$500,000"), so compare
+    // on digits only rather than the raw input string.
+    const annualRevenueText = await leadDetailPage.getFieldValueByLabel('Annual Revenue');
+    expect(annualRevenueText.replace(/\D/g, '')).toContain(uniqueLead.annualRevenue);
+    const employeesText = await leadDetailPage.getFieldValueByLabel('No. of Employees');
+    expect(employeesText.replace(/\D/g, '')).toContain(uniqueLead.numberOfEmployees);
+
+    // Street/City/Zip render together under a single compound "Address" field.
+    const addressText = await leadDetailPage.getFieldValueByLabel('Address');
+    expect(addressText).toContain(uniqueLead.street);
+    expect(addressText).toContain(uniqueLead.city);
+    expect(addressText).toContain(uniqueLead.zipPostalCode);
   });
 
   test('edits Lead status from Open - Not Contacted to Working - Contacted and validates the update', async ({

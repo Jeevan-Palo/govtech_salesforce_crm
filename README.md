@@ -28,6 +28,12 @@ playwright.config.ts
 - Node.js 20.19+ or 22.13+ (see `.nvmrc`-less requirement from `package.json`
   devDependencies; any current LTS works).
 - A Salesforce Developer Edition org: https://developer.salesforce.com/signup
+  - **This is the assessment brief's steps 1-2 (sign up / verify the org) and
+    is intentionally a one-time, manual, out-of-scope step** - it's a public
+    web sign-up gated by email verification and (for repeat/automated
+    attempts) a CAPTCHA, neither of which this framework automates. It's also
+    not a repeatable test *scenario* the way Lead creation/conversion are -
+    you do it once per org, by hand, before any test ever runs.
 - An inbox you control that receives the org's emails, if you want the OTP
   step automated (see below).
 
@@ -45,6 +51,7 @@ cp .env.example .env           # then fill in the values described below
 |---|---|
 | `SF_BASE_URL` | Login URL, defaults to `https://login.salesforce.com` |
 | `SF_USERNAME` / `SF_PASSWORD` | Your Developer Edition credentials |
+| `SF_SECURITY_TOKEN` | Only needed if your org enforces it for API calls from untrusted IPs - appended to the password for the background SOAP login in `src/utils/salesforceApi.ts` (used to look up existing Account/Contact fixtures), **not** for the interactive UI login/OTP flow below, which never needs it |
 | `STORAGE_STATE_PATH` | Where the authenticated session is cached (default `playwright/.auth/user.json`, gitignored) |
 | `OTP_AUTOMATION_ENABLED` | `true` to auto-read the email verification code, `false` to enter it manually once |
 | `OTP_IMAP_*` | IMAP credentials for the inbox that receives Salesforce's verification email |
@@ -55,6 +62,7 @@ cp .env.example .env           # then fill in the values described below
 npm test                 # all specs, Chromium + WebKit
 npm run test:chromium    # Chromium only
 npm run test:webkit      # WebKit only
+npm run test:smoke       # @smoke-tagged tests only, Chromium + WebKit
 npm run test:headed      # headed/debug run
 npm run test:ui          # Playwright UI mode
 ```
@@ -78,34 +86,66 @@ log is appended to `test-results/run.log` on every execution.
 
 ## Part C.a — Shadow DOM / dynamic Lightning component evidence
 
-![Lead Status combobox DevTools inspection](docs/shadow-dom-evidence.png)
+![Lead Status Path component, live on a Lead record](docs/path-component-evidence.png)
 
-The screenshot above is the New Lead form's **Lead Status** field, inspected
-live in this org. The rendered markup is:
+The screenshot above is the Lead Status **Path** component (the stage bar:
+"Open - Not Contacted" / "Working - Contacted" / ...), captured live on a
+just-created Lead. `LeadDetailPage.editStatus()` is the code that drives it
+- it's an Aura component (`runtime_sales_pathassistantPathAssistantTab`), not
+a plain field, so it's the one actually exercised by this suite (unlike a
+plain combobox, which the suite never needed special handling for). Its
+rendered markup, captured via `element.outerHTML` in two separate live runs
+against this org, is:
 
 ```html
-<button lwc-4kb6kaqheak class="slds-combobox__input slds-input-faux fix-sds-input_faux slds-combobox__input-value"
-        id="combobox-button-947" type="button"
-        role="combobox" aria-haspopup="listbox" aria-expanded="true"
-        aria-label="Lead Status" aria-required="true"
-        aria-controls="dropdown-element-947" ...>
+<!-- run 1 -->
+<li ... data-aura-rendered-by="2233:0" data-name="Open - Not Contacted" ...>
+  <a role="option" aria-label="Open - Not Contacted" data-aura-rendered-by="2234:0" ...>
+<!-- run 2, same component, same org -->
+<li ... data-aura-rendered-by="2205:0" data-name="Open - Not Contacted" ...>
+  <a role="option" aria-label="Open - Not Contacted" data-aura-rendered-by="2206:0" ...>
 ```
 
-A naive locator such as `#combobox-button-947` or `.slds-combobox__input`
-doesn't hold up: the `-947` suffix on the `id` and the `lwc-4kb6kaqheak`
-scoping class are both generated per page load/build by the Lightning Web
-Component runtime, so they change between sessions and deployments -
-hard-coding either would break on the very next run.
+There's no `id` attribute anywhere on this component at all - the only
+per-element anchor Aura renders is `data-aura-rendered-by`, and the two runs
+above show it's a render-tree counter that's reassigned on every page load,
+so hard-coding it (or guessing `:nth-child` position, since which stages
+appear depends on the record's page layout) would be fragile. What *is*
+stable across both runs is `role="option"` + the stage's own label as the
+accessible name (`aria-label="Working - Contacted"`, etc.) - exactly what
+`editStatus()` targets via `getByRole('option', { name: newStatus, exact: true })`.
 
-What *is* stable is the accessible contract the component renders:
-`role="combobox"` + `aria-label="Lead Status"`. That's exactly what
-`BasePage.selectCombobox('Lead Status', ...)` targets via
-`getByRole('combobox', { name: 'Lead Status' })`, and the same reasoning is
-why `BasePage.fillLookupAndSelect()` uses `getByRole('option', ...)` for
-lookup/typeahead results instead of CSS. Playwright also pierces open shadow
-roots automatically for role/text engines, so this accessibility-first
-approach keeps working even where the component's internal DOM is further
-nested inside a shadow boundary.
+Two corrections to an earlier version of this write-up, checked directly
+against this org rather than assumed:
+- **`.slds-combobox__input` doesn't "break" - it's ambiguous.** It's a
+  static SLDS framework class that's actually present and unchanged across
+  reloads; the real problem is that `page.locator('.slds-combobox__input').count()`
+  returns **11** matches on the New Lead form alone, so it can't identify a
+  *specific* field without an arbitrary (and fragile) index.
+- **Shadow-piercing isn't the differentiator.** `element.getRootNode()
+  instanceof ShadowRoot` is `true` for these components in this org (real
+  native Shadow DOM, not a synthetic/light-DOM polyfill), but Playwright's
+  CSS engine pierces open shadow roots automatically too, same as its
+  role/text engines - confirmed by the `.slds-combobox__input` count above
+  actually finding matches despite the shadow boundary. The reason role
+  locators are used here isn't shadow-piercing; it's that the accessible
+  name is the one attribute on these components that's simultaneously
+  stable *and* unique, unlike a generated id/render-counter (changes every
+  load) or a bare class (shared by every combobox on the page).
+
+The real debugging cost of this component: a post-save success toast in
+WebKit specifically can sit on screen long enough to physically overlap the
+Path bar and intercept clicks on its `option`s before it naturally
+dismisses - `editStatus()` calls `waitForToastToClear()` first for exactly
+this reason (see `src/pages/LeadDetailPage.ts`).
+
+The same accessible-role approach is used for every other Lightning
+combobox/lookup in this framework - `BasePage.selectCombobox()` (exercised
+in `LeadFormPage` against the **Lead Source** field) and
+`BasePage.fillLookupAndSelect()` both target `role`+accessible name instead
+of CSS, and the Convert Lead dialog's Account/Contact search
+(`ConvertLeadPage.resolveAccount()`/`resolveContact()`) does the same
+against its own dynamically-rendered typeahead `option`s.
 
 ## Part C.b — Handling the email verification code on login
 
@@ -136,8 +176,17 @@ Salesforce challenges any login from an unrecognized browser/device with a
   robust for CI (no email dependency at all), but it's an org Setup change a
   Salesforce admin must make out-of-band, not something the test code can
   configure, and it weakens the org's login security posture, so it's noted
-  here as an alternative rather than the default.
-
+  here as an alternative rather than the default.- *A session-token bypass via `frontdoor.jsp?sid=`* - once a SOAP/REST login
+  with `SF_SECURITY_TOKEN` returns a session id (already done for the
+  Account/Contact fixture lookups in `src/utils/salesforceApi.ts`), that
+  session id can be handed to a browser via
+  `https://<instance>/secur/frontdoor.jsp?sid=<sessionId>` to get an
+  authenticated page without ever driving the login form - a genuine way to
+  skip the OTP challenge entirely, including in CI with no email dependency.
+  Not used here because it would mean the suite stops exercising the real
+  login + OTP UI flow at all, which the assessment brief specifically asks to
+  automate (Part A); it's a reasonable alternative for suites where login
+  itself isn't a tested scenario, just a precondition.
 ## API / response validation notes (Part B bonus)
 
 See [NOTES.md](NOTES.md) for the observed Lead→Opportunity conversion
@@ -180,3 +229,15 @@ secrets before enabling the workflow:
   (`test.skip(...)`) if the org has no duplicate rule configured for Lead
   email, since that's an org configuration precondition, not something the
   test can create.
+- After a lot of live test runs against the same dev org (this suite creates
+  a real Lead/Account/Contact per run), Salesforce's fuzzy duplicate-rule
+  Account Search in the Convert Lead dialog can start surfacing unrelated
+  prior fixture records as "possible matches" for a brand-new Account name,
+  occasionally interrupting the conversion smoke test. This is org test-data
+  clutter from repeated runs, not a defect in the suite - periodically
+  cleaning out old fixture Accounts/Leads/Opportunities in the dev org avoids
+  it. `npm run test:smoke` is the fastest way to get a quick Chromium +
+  WebKit confidence check without a full run; run it with `--workers=1` if
+  you hit this, since the conversion flow is the heaviest single action in
+  the suite and benefits from not contending with a second worker for the
+  same live org.

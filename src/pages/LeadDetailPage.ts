@@ -13,6 +13,14 @@ export class LeadDetailPage extends BasePage {
     return convertTo18(extractRecordIdFromUrl(this.page.url()));
   }
 
+  /** Raw, un-converted Id segment straight out of the URL - used to assert the actual generated
+   *  Id's own shape (18 chars, "00Q" Lead prefix) instead of a converter's output, since
+   *  convertTo18() is a no-op pass-through for already-18-char ids and can't meaningfully fail. */
+  async getRawLeadId(): Promise<string> {
+    await this.page.waitForURL(/\/lightning\/r\/(?:Lead\/)?[a-zA-Z0-9]{15,18}\/view/);
+    return extractRecordIdFromUrl(this.page.url());
+  }
+
   /**
    * Lead Status is driven by the Lightning "Path" component: a `listbox "Path Options"` of
    * `option`s plus a "Mark as Current Status" confirm button - not a simple inline-edit field.

@@ -40,15 +40,21 @@ export class ConvertLeadPage extends BasePage {
     // merely contains the company name as a quoted substring.
     const matchOption = group.getByRole('option', { name: companyName, exact: true });
 
-    const deadline = Date.now() + (expectMatch ? maxWaitMs : 0);
-    let hasMatch = false;
-    do {
+    const checkForMatch = async (): Promise<boolean> => {
       await searchBox.fill('');
       await searchBox.fill(companyName);
-      hasMatch = await matchOption.first().isVisible({ timeout: 10_000 }).catch(() => false);
-      if (hasMatch || Date.now() >= deadline) break;
-      await this.page.waitForTimeout(3_000);
-    } while (Date.now() < deadline);
+      return matchOption.first().isVisible({ timeout: 10_000 }).catch(() => false);
+    };
+
+    let hasMatch: boolean;
+    if (expectMatch) {
+      hasMatch = await expect
+        .poll(checkForMatch, { timeout: maxWaitMs, intervals: [3_000] })
+        .toBe(true)
+        .then(() => true, () => false);
+    } else {
+      hasMatch = await checkForMatch();
+    }
 
     if (hasMatch) {
       await matchOption.first().click();
@@ -103,9 +109,12 @@ export class ConvertLeadPage extends BasePage {
     const confirmation = this.page
       .getByRole('dialog')
       .filter({ has: this.page.getByRole('heading', { name: 'Your lead has been converted' }) });
+    // Observed to occasionally run right up against (and past) 45s on this org - the Convert
+    // action creates Account+Contact+Opportunity synchronously server-side, so it's the heaviest
+    // single action in this suite; give it more headroom than a typical Lightning render wait.
     await confirmation.getByRole('heading', { name: 'Your lead has been converted' }).waitFor({
       state: 'visible',
-      timeout: 45_000,
+      timeout: 60_000,
     });
     // The confirmation cards (Account/Contact/Opportunity links) render asynchronously after the heading.
     await confirmation
@@ -160,12 +169,17 @@ export class ConvertLeadPage extends BasePage {
 
   /** The confirmation cards render progressively, so poll briefly until the Opportunity link (if any) shows up. */
   private async waitForConvertedIds(): Promise<{ accountId?: string; contactId?: string; opportunityId?: string }> {
-    const deadline = Date.now() + 10_000;
-    let ids = await this.extractConvertedIds();
-    while (!ids.opportunityId && Date.now() < deadline) {
-      await this.page.waitForTimeout(500);
-      ids = await this.extractConvertedIds();
-    }
+    let ids: { accountId?: string; contactId?: string; opportunityId?: string } = {};
+    await expect
+      .poll(
+        async () => {
+          ids = await this.extractConvertedIds();
+          return Boolean(ids.opportunityId);
+        },
+        { timeout: 10_000, intervals: [500] },
+      )
+      .toBe(true)
+      .catch(() => {});
     return ids;
   }
 
