@@ -87,6 +87,31 @@ test project depends on `setup` and reuses that cached state — the setup
 project itself re-validates the cache first and only logs in again if it's
 missing or expired, so it never blindly trusts a stale cache.
 
+### Running step-by-step (Part A/B, then Part C)
+
+If you'd rather drive each part explicitly instead of `npm test` doing it
+all in one shot:
+
+```bash
+# 1. Part A/B - authenticate (reuses a cached session, or logs in + OTP if it's missing/expired)
+npx playwright test --project=setup --headed
+
+# 2. Part A/B - full suite against the cached session from step 1
+npx playwright test --project=chromium
+
+# 3. Part C - switch .env to the IMAP-OTP org/credentials first (see "Email OTP
+#    automation" below), then force a real login + live OTP retrieval and verify
+#    it works end-to-end with a real Lead creation
+npx playwright test --project=setup --headed
+npx playwright test tests/adhoc/otp-imap-check.spec.ts --project=chromium
+```
+
+`--project=setup` only runs `tests/setup/auth.setup.ts` (see `testMatch` in
+`playwright.config.ts`) — it never runs `.spec.ts` files on its own, which is
+why step 3 runs the adhoc spec explicitly afterwards. `--headed` is required
+whenever a real (non-cached) login happens, since the manual-OTP fallback's
+`page.pause()` is only visible in headed mode.
+
 ## Viewing the report
 
 ```bash
