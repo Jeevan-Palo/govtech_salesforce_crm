@@ -52,9 +52,22 @@ cp .env.example .env           # then fill in the values described below
 | `SF_BASE_URL` | Login URL, defaults to `https://login.salesforce.com` |
 | `SF_USERNAME` / `SF_PASSWORD` | Your Developer Edition credentials |
 | `SF_SECURITY_TOKEN` | Only needed if your org enforces it for API calls from untrusted IPs - appended to the password for the background SOAP login in `src/utils/salesforceApi.ts` (used to look up existing Account/Contact fixtures), **not** for the interactive UI login/OTP flow below, which never needs it |
-| `STORAGE_STATE_PATH` | Where the authenticated session is cached (default `playwright/.auth/user.json`, gitignored) |
-| `OTP_AUTOMATION_ENABLED` | `true` to auto-read the email verification code, `false` to enter it manually once |
-| `OTP_IMAP_*` | IMAP credentials for the inbox that receives Salesforce's verification email |
+| `STORAGE_STATE_PATH` | Where the authenticated session is cached (default `playwright/.auth/user.json`, gitignored). If you switch `SF_USERNAME`/`SF_BASE_URL` to a different org, point this at a different file too - otherwise the new org's session silently overwrites the old org's cache |
+| `OTP_AUTOMATION_ENABLED` | `true` to auto-read the email verification code via IMAP, `false` to pause in the Playwright Inspector and enter it manually once |
+| `OTP_IMAP_*` | IMAP host/port/user/password for the inbox that receives Salesforce's verification email - see the Gmail/Outlook note below before choosing a provider |
+
+**Choosing an OTP mailbox provider:** any Microsoft-hosted mailbox (Outlook.com/Hotmail
+personal accounts *and* Microsoft 365/Exchange Online corporate accounts) now
+requires OAuth2/Modern Auth for IMAP - Basic Auth (a plain username/password, which
+is all `OTP_IMAP_*` supports) is rejected outright, confirmed against Microsoft's own
+support docs. A Gmail account with an **App Password** (Google Account → Security →
+2-Step Verification → App passwords; requires 2FA enabled first) works with plain IMAP
+and is what this framework was validated against.
+
+After setting `OTP_IMAP_*`, sanity-check the credentials actually authenticate before
+trusting the real login flow with them by running the one-off connectivity check in
+`tests/adhoc/otp-imap-check.spec.ts` (currently `test.skip`'d - remove the `.skip` to
+run it once, then restore it).
 
 ## Running the tests
 
@@ -180,10 +193,15 @@ Salesforce challenges any login from an unrecognized browser/device with a
   for exactly this, no real credentials to leak, easy CI rotation, but adds
   a paid third-party dependency and another secret to manage.
 - *A real mailbox via IMAP (chosen here)* — zero extra cost/service
-  dependency, works with any provider; the tradeoff is the mailbox
-  app-password is a real credential that must be stored as a CI secret and
-  scoped to a dedicated test-only account (never a personal/production inbox)
-  to limit blast radius if leaked.
+  dependency, but **not** "any provider" in practice: confirmed against
+  Microsoft's own support docs that every Microsoft-hosted mailbox (personal
+  Outlook.com/Hotmail *and* corporate Microsoft 365/Exchange Online) now
+  requires OAuth2/Modern Auth for IMAP, rejecting Basic Auth outright - so a
+  Gmail account with an App Password (requires 2FA first) is what this
+  framework actually uses and was validated against. The app-password is
+  still a real credential that must be stored as a CI secret and scoped to a
+  dedicated test-only account (never a personal/production inbox) to limit
+  blast radius if leaked.
 - *Relying on an org Trusted IP Range to skip the challenge entirely* — most
   robust for CI (no email dependency at all), but it's an org Setup change a
   Salesforce admin must make out-of-band, not something the test code can
@@ -257,3 +275,25 @@ secrets before enabling the workflow:
   discounted as noise - fixed by widening the word pools to ~960
   combinations. `npm run test:smoke` is the fastest way to get a quick
   Chromium + WebKit confidence check without a full run.
+- The "existing Account" and "both Account and Contact already exist"
+  conversion tests (`lead-conversion.spec.ts`) use a **bootstrap-then-verify**
+  pattern: the first run against a fresh org seeds the fixture Lead/Account/
+  Contact and self-skips the actual assertions via a dynamic `test.skip(...)`,
+  since the Convert dialog's search index hasn't indexed that brand-new
+  record yet. Seeing these two tests reported as **skipped** on an early run
+  is expected, not a failure - re-run the suite again later (minutes to
+  ~15+) once the index has caught up, so the Convert dialog actually
+  resolves them as existing matches instead of creating duplicates.
+- The "New Lead" quick-create modal has been observed to intermittently
+  close itself mid-fill in this org, at an unpredictable field, with no
+  record saved (see the comment in `LeadFormPage.fill()`). The framework
+  retries once automatically (re-open the form, refill); if it still fails
+  after that single retry, it surfaces as a real test failure rather than
+  retrying indefinitely - re-running the test is the correct response, not a
+  sign of a logic bug.
+- A couple of WebKit-only timeouts (Convert button, Description field) were
+  observed on a brand-new, never-warmed-up Developer Edition org that
+  Chromium didn't hit in the same run. Tentatively attributed to WebKit
+  being more sensitive to that org's initial slowness rather than a
+  framework defect, but not conclusively root-caused - worth re-checking if
+  it recurs against a warmed-up org.
