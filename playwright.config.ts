@@ -29,7 +29,10 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    actionTimeout: 15_000,
+    // Bumped from 15s - individual actions (a single field fill, a single button click) have
+    // been observed exceeding 15s on this org even in isolation, unrelated to any specific
+    // locator or test logic (seasonal-release-rollout-grade org slowness, not a code defect).
+    actionTimeout: 30_000,
   },
 
   /* Auth runs once (reusing a still-valid cached session when possible), then both browser projects reuse its storageState. */

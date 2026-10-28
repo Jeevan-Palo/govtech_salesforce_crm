@@ -46,11 +46,17 @@ export class LeadDetailPage extends BasePage {
   async clickConvert(): Promise<void> {
     await this.waitForToastToClear();
     const convertButton = this.page.getByRole('button', { name: 'Convert', exact: true });
+    const moreActionsButton = this.page.getByRole('button', { name: 'Show more actions' });
+    // Whether Convert sits directly on the ribbon or is tucked under the overflow menu depends on
+    // the page layout, but EITHER can also simply not be rendered yet (the ribbon loads
+    // asynchronously) - a single immediate isVisible() check races against that render and can
+    // wrongly conclude "must be the overflow case" before either button exists, then time out
+    // waiting for the wrong one. Wait for whichever one actually appears first instead.
+    await convertButton.or(moreActionsButton).first().waitFor({ state: 'visible', timeout: 30_000 });
     if (await convertButton.isVisible().catch(() => false)) {
       await convertButton.click();
     } else {
-      // The action can be tucked under the overflow menu depending on the page layout.
-      await this.page.getByRole('button', { name: 'Show more actions' }).click();
+      await moreActionsButton.click();
       await this.page.getByRole('menuitem', { name: 'Convert' }).click();
     }
     await this.waitForLightningReady();

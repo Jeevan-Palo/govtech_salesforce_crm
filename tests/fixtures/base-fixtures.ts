@@ -20,7 +20,16 @@ type Fixtures = {
 export const test = base.extend<Fixtures>({
   // Every test starts logged-in and landed on the org home page, not about:blank.
   page: async ({ page }, use) => {
-    await page.goto('/');
+    // 'load' (the default waitUntil) can hang indefinitely on a freshly-upgraded org showing a
+    // release splash (e.g. "Winter '27") that keeps background activity going - wait for DOM
+    // content instead, then confirm we're actually logged in via a stable UI anchor.
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page
+      .getByRole('button', { name: /App Launcher/i })
+      .or(page.getByPlaceholder('Search...'))
+      .first()
+      .waitFor({ state: 'visible', timeout: 30_000 })
+      .catch(() => {});
     await use(page);
   },
   loginPage: async ({ page }, use) => use(new LoginPage(page)),

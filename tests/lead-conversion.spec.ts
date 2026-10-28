@@ -170,6 +170,13 @@ test.describe('Part B - Lead to Opportunity Conversion', () => {
         return { willCreateAccount: account, willCreateContact: contact };
       },
     );
+    // We expected the fixture Account to already be indexed but it wasn't - bail out now rather
+    // than proceeding to Convert, which would silently create a genuine duplicate Account
+    // (observed live on this org) instead of just needing a later retry.
+    test.skip(
+      Boolean(existingAccountId) && willCreateAccount,
+      "Account search index hasn't caught up to the fixture yet - re-run later instead of creating a duplicate.",
+    );
     const conversionResponse = await test.step('Convert the Lead and capture the API response', async () => {
       const response = await convertLeadPage.convertAndCaptureResponse();
       await testInfo.attach('convert-lead-api-response', {
@@ -215,11 +222,29 @@ test.describe('Part B - Lead to Opportunity Conversion', () => {
     // "Similar Records Exist" Lead-level duplicate block, which fires on an exact
     // company+first+last+email match (see LeadFormPage.saveExpectingDuplicateBlock and
     // negative-scenarios.spec.ts).
-    const company = `QA Automation BothExist Co (${testInfo.project.name})`;
+    //
+    // IMPORTANT: Chromium's and WebKit's identities below share NO words with each other, NOR
+    // with any word from testDataFactory.ts's LAST_NAMES/COMPANY_MIDDLES/COMPANY_SUFFIXES pools
+    // (used to randomly generate every OTHER test's company name). This org's standard Account
+    // duplicate rule fuzzy-matches on Name tokens and discounts short/parenthetical suffixes as
+    // noise (see testDataFactory.ts's own comment on this) - confirmed via trace, twice, that
+    // picking words from those shared pools (even just 2 of 3) eventually collides with some
+    // other randomly-generated test Lead's company name and gets "Create New Account" rejected
+    // outright with a server-side force:recordDuplicateDetected error (not just a client-side
+    // warning). Made-up, uncommon words sidestep this unconditionally.
+    const identityByProject: Record<string, { company: string; lastName: string }> = {
+      chromium: { company: 'Thistlemoor Quarrybrook Mercantile', lastName: 'Okonkwo' },
+      webkit: { company: 'Larkspur Fenwick Atelier', lastName: 'Villanueva' },
+    };
+    const identity = identityByProject[testInfo.project.name] ?? {
+      company: `Fallback Fixture Co ${testInfo.project.name}`,
+      lastName: `Fallback${testInfo.project.name}`,
+    };
+    const company = identity.company;
     const firstName = 'Taylor';
-    const lastName = `BothExist${testInfo.project.name}`;
+    const lastName = identity.lastName;
     const fullName = `${firstName} ${lastName}`;
-    const stateFile = `both-exist-match.${testInfo.project.name}.json`;
+    const stateFile = `both-exist-match5.${testInfo.project.name}.json`;
     const [existingAccountId, existingContactId] = await Promise.all([
       resolveExistingId('Account', company, stateFile, 'accountId'),
       resolveExistingId('Contact', fullName, stateFile, 'contactId'),
@@ -241,6 +266,13 @@ test.describe('Part B - Lead to Opportunity Conversion', () => {
         const contact = await convertLeadPage.resolveContact(fullName, { expectMatch: Boolean(existingContactId) });
         return { willCreateAccount: account, willCreateContact: contact };
       },
+    );
+    // Same rationale as the existing-Account-only test above: don't let a too-early re-run fall
+    // through to Create New and mint a genuine duplicate Account/Contact just because the search
+    // index hasn't caught up yet.
+    test.skip(
+      (Boolean(existingAccountId) && willCreateAccount) || (Boolean(existingContactId) && willCreateContact),
+      "Search index hasn't caught up to the fixture yet - re-run later instead of creating a duplicate.",
     );
     const conversionResponse = await test.step('Convert the Lead and capture the API response', async () => {
       const response = await convertLeadPage.convertAndCaptureResponse();

@@ -24,8 +24,9 @@ test.describe('Part B - Negative Scenarios', () => {
     appLauncherPage,
     leadFormPage,
   }) => {
-    // Two full Lead create cycles in one test - the default 45s budget is tight on WebKit.
-    test.setTimeout(90_000);
+    // Two full Lead create cycles in one test - the default 45s budget is tight on WebKit, and
+    // even 90s has been observed too tight when the org itself is rendering slowly.
+    test.setTimeout(150_000);
     const lead = createLeadData();
 
     await appLauncherPage.openApp('Sales');

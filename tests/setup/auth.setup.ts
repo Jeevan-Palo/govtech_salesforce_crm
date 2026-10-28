@@ -16,10 +16,12 @@ async function isExistingSessionValid(): Promise<boolean> {
     const context = await browser.newContext({ storageState: storageStatePath });
     const page = await context.newPage();
     await page.goto(env.baseURL);
-    // Fail fast here - if the cache is stale we want to leave the bulk of the test
-    // timeout budget for a real login + OTP flow, not burn it waiting on a dead session.
+    // Give this enough budget to survive a slow-loading org (e.g. a seasonal-release splash
+    // screen) without falsely declaring a still-valid session dead - that forces a real login,
+    // which can itself hit an unattended OTP challenge. 25s still leaves ample time for a real
+    // login + OTP flow within the overall 120s setup timeout if the cache truly is stale.
     return await new LoginPage(page)
-      .assertLoggedIn(8_000)
+      .assertLoggedIn(25_000)
       .then(() => true)
       .catch(() => false);
   } finally {

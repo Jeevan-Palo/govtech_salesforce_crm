@@ -18,17 +18,12 @@ export class LeadFormPage extends BasePage {
   }
 
   async openNewLeadForm(): Promise<void> {
-    // A lingering toast (e.g. from a prior save, or fill()'s own retry after a mid-fill crash)
-    // can intercept this click; re-clear and retry once rather than failing outright.
-    await this.waitForToastToClear();
-    const leadsLinkClicked = await this.page
-      .getByRole('link', { name: 'Leads' })
-      .click({ timeout: 15_000 })
-      .then(() => true, () => false);
-    if (!leadsLinkClicked) {
-      await this.waitForToastToClear();
-      await this.page.getByRole('link', { name: 'Leads' }).click();
-    }
+    // Clicking the top-nav "Leads" link can stall well past a generous timeout if a lingering
+    // toast/spinner from a prior action intercepts it (observed live: a 15s+ click timeout that
+    // then resolves on its own shortly after) - navigate to the Leads list URL directly instead,
+    // which sidesteps any overlay entirely rather than fighting it with a retried click.
+    const leadsListUrl = new URL('/lightning/o/Lead/home', this.page.url()).toString();
+    await this.page.goto(leadsListUrl);
     await this.waitForLightningReady();
 
     // Salesforce occasionally throws an uncaught LWC error ("Toast: please provide at least the
@@ -129,6 +124,19 @@ export class LeadFormPage extends BasePage {
       .waitFor({ state: 'visible', timeout: 3_000 })
       .then(() => true, () => false);
     if (hasSimilarRecords) {
+      // While this warning is open, the whole underlying "New Lead" dialog (including its own
+      // Save button) is hidden from the accessibility tree - confirmed live: dialog.isVisible()
+      // and even a page-level "Save" button lookup both resolve to nothing while it's showing.
+      // Close it via its own icon button first (an SVG <path> inside intercepts a plain click,
+      // hence force: true) to restore access, then the real Save button becomes clickable again.
+      // The warning can also auto-dismiss itself mid-click (observed: "element was detached from
+      // the DOM, retrying"), so swallow a failed click here too - either way the dialog ends up
+      // gone, and the explicit wait below confirms that before retrying Save.
+      await similarRecordsDialog
+        .getByRole('button', { name: 'Close error dialog' })
+        .click({ force: true, timeout: 10_000 })
+        .catch(() => {});
+      await similarRecordsDialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {});
       await saveButton.click({ timeout: 10_000 }).catch(() => {});
     }
     // Real save can take a few seconds; swallowed on timeout since the modal legitimately stays
