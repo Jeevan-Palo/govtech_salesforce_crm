@@ -81,6 +81,10 @@ export class LeadFormPage extends BasePage {
     // duplicate-rule check that re-renders the form, detaching elements mid-interaction; wait for
     // the committed value to settle rather than guessing how long that re-render takes.
     await expect(byLabel('Company')).toHaveValue(lead.company, { timeout: 10_000 });
+    // That same duplicate-rule check can also pop the inline "Similar Records Exist" warning
+    // (normally handled right before Save) this early - confirmed live, it renders directly on
+    // top of the Rating field's dropdown listbox, silently blocking the option click below.
+    await this.dismissInlineDuplicateWarning();
     await byLabel('Title').fill(lead.title);
     await byLabel('Email').fill(lead.email);
     await byLabel('Phone').fill(lead.phone);
