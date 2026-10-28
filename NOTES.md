@@ -78,6 +78,14 @@ class like `.slds-combobox__input` doesn't break, but it isn't unique either
 isn't the differentiator, since Playwright's CSS engine pierces open shadow
 roots the same way its role/text engines do.)
 
+See also [`docs/shadow-dom-evidence.png`](docs/shadow-dom-evidence.png): a
+DevTools capture of the sibling **Lead Status** combobox on the same form,
+showing `id="combobox-button-947"` / `aria-controls="dropdown-element-947"`
+- generated numeric suffixes reassigned every render, same instability class
+as the Path's `data-aura-rendered-by`. `role="combobox"` + `aria-label` is
+again the stable anchor, which is exactly what `BasePage.selectCombobox()`
+uses for the Rating/Industry/Lead Source fields this suite drives.
+
 ## Debugging narrative (framework setup)
 
 Two real issues hit while standing up this scaffold, kept here as the

@@ -147,6 +147,18 @@ of CSS, and the Convert Lead dialog's Account/Contact search
 (`ConvertLeadPage.resolveAccount()`/`resolveContact()`) does the same
 against its own dynamically-rendered typeahead `option`s.
 
+![DevTools view of the New Lead modal's Lead Status combobox, showing its generated id/aria attributes](docs/shadow-dom-evidence.png)
+
+This second screenshot, DevTools open on the same "New Lead" modal's **Lead
+Status** combobox, shows the sibling side of the same instability: the
+trigger button's `id="combobox-button-947"`, `aria-controls="dropdown-element-947"`
+and `aria-describedby="help-text-946"` are all numeric suffixes Lightning
+generates fresh per render, so a naive `page.locator('#combobox-button-947')`
+would also break on the next load. The one durable anchor visible in this
+markup is `role="combobox"` + `aria-label="Lead Status"` - exactly what
+`BasePage.selectCombobox()` targets for the sibling fields this suite
+actually drives on this same form (Rating, Industry, Lead Source).
+
 ## Part C.b — Handling the email verification code on login
 
 Salesforce challenges any login from an unrecognized browser/device with a

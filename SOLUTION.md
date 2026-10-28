@@ -126,13 +126,18 @@ format. The full captured request/response payload is documented in
 
 ### Part C.a — Shadow DOM / dynamic Lightning component evidence
 
-Documented with a live DevTools screenshot in
+Documented with live DevTools screenshots in
 [README.md](README.md#part-ca--shadow-dom--dynamic-lightning-component-evidence)
-and [NOTES.md](NOTES.md): the Lead Status combobox renders a
-runtime-generated `id`/scoping class that changes per session/build, so the
-framework targets the stable `role="combobox"` + `aria-label` accessible
-contract instead (`BasePage.selectCombobox()` / `fillLookupAndSelect()`),
-which Playwright resolves through shadow roots automatically.
+and [NOTES.md](NOTES.md). The primary element is the Lead Status **Path**
+component that `LeadDetailPage.editStatus()` actually drives: it has no
+`id` at all, only an Aura render-counter (`data-aura-rendered-by`) that two
+live captures of the same component confirm gets reassigned on every page
+load, so `role="option"` + the stage's own `aria-label` is targeted instead.
+A second screenshot of the sibling Lead Status combobox shows the same
+instability from a different angle - a runtime-generated `id`/`aria-controls`
+suffix - backing the same `role="combobox"` + `aria-label` approach used by
+`BasePage.selectCombobox()` / `fillLookupAndSelect()` elsewhere in the
+framework, which Playwright resolves through shadow roots automatically.
 
 ### Part C.b — Email OTP automation
 
